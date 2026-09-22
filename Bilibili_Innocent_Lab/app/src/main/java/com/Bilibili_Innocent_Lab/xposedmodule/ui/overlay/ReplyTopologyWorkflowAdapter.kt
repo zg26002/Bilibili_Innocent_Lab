@@ -33,6 +33,9 @@ internal class ReplyTopologyWorkflowAdapter(
 ) : RecyclerView.Adapter<ReplyTopologyWorkflowAdapter.NodeHolder>() {
 
     private var graph: ReplyTopologyGraph? = null
+    /** 当前筛选后显示的原图索引；祖先节点会被保留以维持脉络。 */
+    private var displayIndexes = IntArray(0)
+    private var filterQuery = ""
     private var selectedRpid: Long? = null
     private var nodeClick: ((Long) -> Unit)? = onNodeClick
 
@@ -45,9 +48,11 @@ internal class ReplyTopologyWorkflowAdapter(
         setHasStableIds(true)
     }
 
-    override fun getItemCount(): Int = graph?.size ?: 0
+    override fun getItemCount(): Int = displayIndexes.size
 
-    override fun getItemId(position: Int): Long = graph?.rpids?.getOrNull(position) ?: RecyclerView.NO_ID
+    override fun getItemId(position: Int): Long = graph?.let { current ->
+        current.rpids.getOrNull(graphIndexAt(position)) ?: RecyclerView.NO_ID
+    } ?: RecyclerView.NO_ID
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): NodeHolder {
         val row = ReplyTopologyNodeRow(parent.context, theme, strings)
@@ -66,9 +71,9 @@ internal class ReplyTopologyWorkflowAdapter(
             val position = holder.bindingAdapterPosition
             val rpid = if (current != null &&
                 position != RecyclerView.NO_POSITION &&
-                position in 0 until current.size
+                position in displayIndexes.indices
             ) {
-                current.rpids[position]
+                current.rpids[graphIndexAt(position)]
             } else {
                 holder.boundRpid.takeIf { it != RecyclerView.NO_ID }
             } ?: return@setOnClickListener
@@ -109,32 +114,56 @@ internal class ReplyTopologyWorkflowAdapter(
     }
 
     fun submit(snapshot: ReplyTopologyRenderSnapshot) {
-        val old = graph
-        val oldSize = old?.size ?: 0
-        val oldSelection = selectedRpid
-        val appendOnly = old != null &&
-            old.key == snapshot.graph.key &&
-            snapshot.graph.size >= oldSize &&
-            snapshot.stablePrefixLength >= oldSize &&
-            prefixBoundaryMatches(old, snapshot.graph)
-
         graph = snapshot.graph
         selectedRpid = snapshot.selectedRpid
+        rebuildDisplayIndexes()
+        // 筛选映射可能改变，完整刷新比向 RecyclerView 发送错误的原图位置更可靠。
+        notifyDataSetChanged()
+    }
 
-        if (appendOnly) {
-            val inserted = snapshot.graph.size - oldSize
-            if (inserted > 0) notifyItemRangeInserted(oldSize, inserted)
-            notifySelectionChange(old, oldSelection, snapshot.graph, selectedRpid)
-        } else {
-            notifyDataSetChanged()
-        }
+    fun setFilterQuery(query: String) {
+        val normalized = query.trim().lowercase(Locale.ROOT)
+        if (normalized == filterQuery) return
+        filterQuery = normalized
+        rebuildDisplayIndexes()
+        notifyDataSetChanged()
+    }
+
+    fun currentFilterQuery(): String = filterQuery
+
+    fun visibleCount(): Int = displayIndexes.size
+
+    fun exportText(): String? {
+        val current = graph ?: return null
+        if (displayIndexes.isEmpty()) return null
+        return buildString {
+            displayIndexes.forEach { index ->
+                val indent = "  ".repeat(current.depths[index].coerceAtLeast(0))
+                val author = current.authorNames[index].ifBlank { strings.unknownAuthor }
+                val replied = current.repliedAuthorNames[index]
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { " -> $it" }
+                    .orEmpty()
+                val message = current.messagePreviews[index]
+                    .ifBlank { strings.emptyMessage }
+                append(indent).append(author).append(replied).append(": ")
+                    .append(message).append('\n')
+            }
+        }.trimEnd()
+    }
+
+    fun graphIndexAtDisplay(position: Int): Int = graphIndexAt(position)
+
+    fun displayPositionOfGraphIndex(index: Int): Int {
+        for (position in displayIndexes.indices) if (displayIndexes[position] == index) return position
+        return RecyclerView.NO_POSITION
     }
 
     /** 返回当前图中的 position；仅供立即滚动，不得被调用方保存。 */
     fun selectRpid(rpid: Long): Int {
         val current = graph ?: return RecyclerView.NO_POSITION
-        val oldPosition = indexOf(current, selectedRpid)
-        val newPosition = indexOf(current, rpid)
+        val oldPosition = displayPositionOfGraphIndex(indexOf(current, selectedRpid))
+        val newPosition = displayPositionOfGraphIndex(indexOf(current, rpid))
         if (newPosition == RecyclerView.NO_POSITION) return RecyclerView.NO_POSITION
         if (selectedRpid == rpid) return newPosition
         selectedRpid = rpid
@@ -147,7 +176,7 @@ internal class ReplyTopologyWorkflowAdapter(
 
     fun isSelected(position: Int): Boolean {
         val current = graph ?: return false
-        return current.rpids.getOrNull(position) == selectedRpid
+        return current.rpids.getOrNull(graphIndexAt(position)) == selectedRpid
     }
 
     fun release() {
@@ -155,41 +184,44 @@ internal class ReplyTopologyWorkflowAdapter(
         nodeLongPress = null
         selectedRpid = null
         graph = null
+        displayIndexes = IntArray(0)
+        filterQuery = ""
         timeCache.evictAll()
     }
 
     private fun bind(holder: NodeHolder, position: Int, selectionOnly: Boolean) {
         val current = graph ?: return
-        if (position !in 0 until current.size) return
-        holder.boundRpid = current.rpids[position]
+        if (position !in displayIndexes.indices) return
+        val graphIndex = graphIndexAt(position)
+        holder.boundRpid = current.rpids[graphIndex]
         val selected = holder.boundRpid == selectedRpid
         if (selectionOnly) {
             holder.row.setSelectedState(selected)
             return
         }
 
-        val flags = current.flags[position]
+        val flags = current.flags[graphIndex]
         val placeholder = ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.PLACEHOLDER)
         val filtered = ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.FILTERED)
         val unavailable = ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.UNAVAILABLE)
         val root = ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.ROOT)
-        val author = current.authorNames[position].ifBlank {
+        val author = current.authorNames[graphIndex].ifBlank {
             when {
                 filtered -> strings.filteredAuthor
                 placeholder || unavailable -> strings.unavailableAuthor
                 else -> strings.unknownAuthor
             }
         }
-        val repliedAuthor = current.repliedAuthorNames[position]
+        val repliedAuthor = current.repliedAuthorNames[graphIndex]
         val title = if (!repliedAuthor.isNullOrBlank() && !root) "$author  →  $repliedAuthor" else author
-        val message = current.messagePreviews[position].ifBlank {
+        val message = current.messagePreviews[graphIndex].ifBlank {
             when {
                 filtered -> strings.filteredMessage
                 placeholder || unavailable -> strings.unavailableMessage
                 else -> strings.emptyMessage
             }
         }
-        val meta = buildMeta(current, position, flags)
+        val meta = buildMeta(current, graphIndex, flags)
         // 占位/被过滤/不可见节点展示的是提示文案而非评论文本，不提供全文查看入口。
         holder.boundMessage = if (placeholder || filtered || unavailable) null else message
         holder.row.bind(
@@ -232,32 +264,43 @@ internal class ReplyTopologyWorkflowAdapter(
             ?.also { timeCache.put(ctimeSeconds, it) }
     }
 
-    private fun prefixBoundaryMatches(old: ReplyTopologyGraph, new: ReplyTopologyGraph): Boolean {
-        if (old.size == 0) return true
-        return old.rpids[0] == new.rpids[0] && old.rpids[old.size - 1] == new.rpids[old.size - 1]
-    }
-
-    private fun notifySelectionChange(
-        oldGraph: ReplyTopologyGraph?,
-        oldRpid: Long?,
-        newGraph: ReplyTopologyGraph,
-        newRpid: Long?
-    ) {
-        if (oldRpid == newRpid) return
-        val oldPosition = oldGraph?.let { indexOf(it, oldRpid) } ?: RecyclerView.NO_POSITION
-        val newPosition = indexOf(newGraph, newRpid)
-        if (oldPosition != RecyclerView.NO_POSITION && oldPosition < newGraph.size) {
-            notifyItemChanged(oldPosition, SELECTION_PAYLOAD)
-        }
-        if (newPosition != RecyclerView.NO_POSITION) notifyItemChanged(newPosition, SELECTION_PAYLOAD)
-    }
-
     private fun indexOf(graph: ReplyTopologyGraph, rpid: Long?): Int {
         if (rpid == null) return RecyclerView.NO_POSITION
         for (index in graph.rpids.indices) {
             if (graph.rpids[index] == rpid) return index
         }
         return RecyclerView.NO_POSITION
+    }
+
+    private fun graphIndexAt(position: Int): Int = displayIndexes.getOrNull(position) ?: -1
+
+    private fun rebuildDisplayIndexes() {
+        val current = graph ?: run {
+            displayIndexes = IntArray(0)
+            return
+        }
+        if (filterQuery.isEmpty()) {
+            displayIndexes = IntArray(current.size) { it }
+            return
+        }
+        val included = BooleanArray(current.size)
+        for (index in 0 until current.size) {
+            val haystack = buildString {
+                append(current.authorNames[index]).append('\u0000')
+                append(current.repliedAuthorNames[index].orEmpty()).append('\u0000')
+                append(current.messagePreviews[index])
+            }.lowercase(Locale.ROOT)
+            if (haystack.contains(filterQuery)) {
+                var cursor = index
+                while (cursor in 0 until current.size && !included[cursor]) {
+                    included[cursor] = true
+                    cursor = current.parentIndexes[cursor]
+                }
+            }
+        }
+        displayIndexes = IntArray(included.count { it })
+        var output = 0
+        included.forEachIndexed { index, keep -> if (keep) displayIndexes[output++] = index }
     }
 
     internal class NodeHolder(val row: ReplyTopologyNodeRow) : RecyclerView.ViewHolder(row) {
@@ -411,12 +454,14 @@ internal class ReplyTopologyTrackDecoration(
         for (childIndex in 0 until parent.childCount) {
             val child = parent.getChildAt(childIndex)
             val position = parent.getChildAdapterPosition(child)
-            if (position == RecyclerView.NO_POSITION || position !in 0 until graph.size) continue
+            if (position == RecyclerView.NO_POSITION || position !in 0 until adapter.itemCount) continue
+            val graphIndex = adapter.graphIndexAtDisplay(position)
+            if (graphIndex !in 0 until graph.size) continue
 
             val top = child.top + child.translationY
             val bottom = child.bottom + child.translationY
             val centerY = (top + bottom) * 0.5f
-            val rawDepth = graph.depths[position].coerceAtLeast(0)
+            val rawDepth = graph.depths[graphIndex].coerceAtLeast(0)
             val depth = rawDepth.coerceAtMost(maxVisibleLane)
             val nodeX = laneX(depth)
 
@@ -426,20 +471,23 @@ internal class ReplyTopologyTrackDecoration(
                 canvas.drawLine(x, top, x, bottom, linePaint)
             }
 
-            val parentIndex = graph.parentIndexes[position]
-            if (parentIndex in 0 until graph.size) {
+            val parentIndex = graph.parentIndexes[graphIndex]
+            val parentDisplayPosition = adapter.displayPositionOfGraphIndex(parentIndex)
+            if (parentIndex in 0 until graph.size && parentDisplayPosition != RecyclerView.NO_POSITION) {
                 val parentDepth = graph.depths[parentIndex].coerceIn(0, maxVisibleLane)
                 val parentX = laneX(parentDepth)
+                val parentView = parent.findViewHolderForAdapterPosition(parentDisplayPosition)?.itemView
+                val parentCenterY = parentView?.let { (it.top + it.bottom + it.translationY) * 0.5f }
                 branchPath.reset()
-                branchPath.moveTo(parentX, top)
+                branchPath.moveTo(parentX, parentCenterY ?: top)
                 branchPath.cubicTo(parentX, centerY, nodeX, top, nodeX, centerY)
                 canvas.drawPath(branchPath, linePaint)
             }
-            if (graph.childCounts[position] > 0) {
+            if (graph.childCounts[graphIndex] > 0) {
                 canvas.drawLine(nodeX, centerY, nodeX, bottom, linePaint)
             }
 
-            val flags = graph.flags[position]
+            val flags = graph.flags[graphIndex]
             val root = ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.ROOT)
             val placeholder = ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.PLACEHOLDER) ||
                 ReplyTopologyNodeFlags.has(flags, ReplyTopologyNodeFlags.UNAVAILABLE) ||
