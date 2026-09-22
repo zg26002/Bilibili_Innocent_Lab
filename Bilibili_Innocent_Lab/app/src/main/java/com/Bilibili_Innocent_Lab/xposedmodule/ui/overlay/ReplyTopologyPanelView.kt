@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay
 
 import android.animation.ValueAnimator
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -15,8 +17,10 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.animation.PathInterpolator
 import android.widget.LinearLayout
+import android.widget.EditText
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.lang.ref.WeakReference
@@ -53,6 +57,8 @@ internal class ReplyTopologyPanelView(
     private val statusView = TextView(context)
     private val retryView = actionChip(strings.retry)
     private val continueView = actionChip(strings.continueLoading)
+    private val exportView = actionChip(strings.export)
+    private val filterInput = EditText(context)
     private val recyclerView = RecyclerView(context)
     private val workflowAdapter = ReplyTopologyWorkflowAdapter(
         theme,
@@ -227,6 +233,7 @@ internal class ReplyTopologyPanelView(
         if (isReleased) return
         workflowAdapter.submit(snapshot)
         recyclerView.invalidateItemDecorations()
+        updateExportAvailability()
     }
 
     fun updateState(state: ReplyTopologyPanelState) {
@@ -240,6 +247,7 @@ internal class ReplyTopologyPanelView(
         )
         retryView.visibility = if (state.canRetry) View.VISIBLE else View.GONE
         continueView.visibility = if (state.canContinue) View.VISIBLE else View.GONE
+        updateExportAvailability()
     }
 
     fun setBackgroundOpacity(opacity: Float, notify: Boolean) {
@@ -448,6 +456,7 @@ internal class ReplyTopologyPanelView(
         closeView.setOnClickListener(null)
         retryView.setOnClickListener(null)
         continueView.setOnClickListener(null)
+        exportView.setOnClickListener(null)
         opacitySeek.setOnSeekBarChangeListener(null)
         workflowAdapter.release()
         recyclerView.adapter = null
@@ -576,10 +585,64 @@ internal class ReplyTopologyPanelView(
         }
         retryView.setOnClickListener { panelListener?.onRetryRequested() }
         continueView.setOnClickListener { panelListener?.onContinueRequested() }
-        row.addView(statusView, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        filterInput.apply {
+            textSize = 12f
+            setSingleLine(true)
+            hint = strings.filterHint
+            contentDescription = strings.filterHint
+            setTextColor(theme.primaryTextColor)
+            setHintTextColor(theme.secondaryTextColor)
+            setPadding(dp(7), 0, dp(7), 0)
+            background = roundedRipple()
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    if (!isReleased) {
+                        workflowAdapter.setFilterQuery(s?.toString().orEmpty())
+                        updateExportAvailability()
+                        recyclerView.invalidateItemDecorations()
+                    }
+                }
+                override fun afterTextChanged(s: android.text.Editable?) = Unit
+            })
+        }
+        exportView.visibility = View.VISIBLE
+        exportView.contentDescription = strings.export
+        exportView.setOnClickListener { exportCurrentTopology() }
+        // Keep status and filter as weighted regions so retry/continue actions do not
+        // push controls outside the panel on the minimum width.
+        row.addView(statusView, LayoutParams(0, LayoutParams.MATCH_PARENT, 0.9f))
+        row.addView(filterInput, LayoutParams(0, dp(30), 1.1f))
+        row.addView(exportView, LayoutParams(LayoutParams.WRAP_CONTENT, dp(30)))
         row.addView(retryView, LayoutParams(LayoutParams.WRAP_CONTENT, dp(30)))
         row.addView(continueView, LayoutParams(LayoutParams.WRAP_CONTENT, dp(30)))
+        updateExportAvailability()
         return row
+    }
+
+    private fun updateExportAvailability() {
+        exportView.isEnabled = !isReleased && workflowAdapter.visibleCount() > 0
+        exportView.alpha = if (exportView.isEnabled) 1f else 0.45f
+    }
+
+    private fun exportCurrentTopology() {
+        if (isReleased) return
+        val text = workflowAdapter.exportText()
+        if (text.isNullOrBlank()) {
+            Toast.makeText(context, strings.exportEmpty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (clipboard == null) {
+            Toast.makeText(context, strings.exportEmpty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        clipboard.setPrimaryClip(ClipData.newPlainText(strings.title, text))
+        Toast.makeText(
+            context,
+            strings.exportSuccess.format(workflowAdapter.visibleCount()),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun createWorkflowList(): View {
