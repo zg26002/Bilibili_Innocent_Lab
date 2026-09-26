@@ -853,6 +853,8 @@
     <string name="player_disable_long_press">Disable long-press acceleration</string>
     <string name="player_long_press_speed">Custom long-press speed</string>
     <string name="player_default_speed">Default playback speed</string>
+    <string name="player_sponsor_block">Automatically skip sponsored segments</string>
+    <string name="player_sponsor_block_tip">Uses the SponsorBlock-compatible BSB service to skip submitted sponsor, intro, outro, and interaction segments. Off by default; restart Bilibili after changing.</string>
     <string name="player_speed_follow_host">Follow Bilibili</string>
     <string name="player_speed_follow_host_tip">Do not override this playback behavior.</string>
     <string name="player_speed_multiplier">%1$s×</string>

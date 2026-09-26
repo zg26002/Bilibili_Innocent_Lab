@@ -98,6 +98,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCodecForceFeatu
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityOptions
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -3555,6 +3556,9 @@ class HookEntry : XposedModule() {
                         disableLongPress = prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
                         longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),
                         defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0)
+                    ),
+                    SponsorBlockFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.PLAYER_SPONSOR_BLOCK_ENABLED, false)
                     ),
                     SystemMediaNotificationFeatureInstaller(
                         enabled = prefs.getBoolean(

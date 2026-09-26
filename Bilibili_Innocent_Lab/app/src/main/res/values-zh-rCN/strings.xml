@@ -853,6 +853,8 @@
     <string name="player_disable_long_press">禁用长按加速</string>
     <string name="player_long_press_speed">长按倍速自定义</string>
     <string name="player_default_speed">默认播放倍速</string>
+    <string name="player_sponsor_block">自动跳过赞助片段</string>
+    <string name="player_sponsor_block_tip">使用兼容 SponsorBlock 的 BSB 服务跳过已提交的赞助、片头、片尾和互动片段。默认关闭，修改后请重启哔哩哔哩。</string>
     <string name="player_speed_follow_host">跟随哔哩哔哩</string>
     <string name="player_speed_follow_host_tip">不覆盖此项播放行为。</string>
     <string name="player_speed_multiplier">%1$s×</string>

@@ -853,6 +853,8 @@
     <string name="player_disable_long_press">停用長按加速</string>
     <string name="player_long_press_speed">自訂長按倍速</string>
     <string name="player_default_speed">預設播放倍速</string>
+    <string name="player_sponsor_block">自動略過贊助片段</string>
+    <string name="player_sponsor_block_tip">使用相容 SponsorBlock 的 BSB 服務略過已提交的贊助、片頭、片尾與互動片段。預設關閉，修改後請重新啟動 Bilibili。</string>
     <string name="player_speed_follow_host">跟隨 Bilibili</string>
     <string name="player_speed_follow_host_tip">不覆寫此項播放行為。</string>
     <string name="player_speed_multiplier">%1$s×</string>

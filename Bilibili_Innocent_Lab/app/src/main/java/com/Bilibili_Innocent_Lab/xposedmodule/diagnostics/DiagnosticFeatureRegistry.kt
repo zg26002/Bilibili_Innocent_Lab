@@ -98,6 +98,8 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("player_speed", DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true),
+        DiagnosticFeatureDescriptor("player_sponsor_block", DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor(
             "danmaku_purify",
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,

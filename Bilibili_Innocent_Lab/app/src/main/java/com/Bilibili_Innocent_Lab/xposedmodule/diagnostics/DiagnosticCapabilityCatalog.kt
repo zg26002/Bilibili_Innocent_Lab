@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 13
+    const val VERSION = 14
     val definitions = listOf(
         DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
@@ -120,6 +120,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("player_long_press_disabled", "player_speed", R.string.player_disable_long_press, setOf("player.long_press.disabled")),
         DiagnosticCapabilityDefinition("player_long_press_speed_percent", "player_speed", R.string.player_long_press_speed, setOf("player.long_press_speed.percent")),
         DiagnosticCapabilityDefinition("player_default_speed_percent", "player_speed", R.string.player_default_speed, setOf("player.default_speed.percent")),
+        DiagnosticCapabilityDefinition("player_sponsor_block", "player_sponsor_block", R.string.player_sponsor_block, setOf("player.sponsor_block.enabled"), introducedCatalogVersion = 14),
         DiagnosticCapabilityDefinition("comments_search_links_removed", "comment_purify", R.string.remove_comment_search_links, setOf("comments.search_links.removed")),
         DiagnosticCapabilityDefinition("comments_empty_guide_removed", "comment_purify", R.string.remove_comment_empty_guide, setOf("comments.empty_guide.removed")),
         DiagnosticCapabilityDefinition("comments_vote_widgets_removed", "comment_purify", R.string.remove_comment_vote_widgets, setOf("comments.vote_widgets.removed")),

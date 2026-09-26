@@ -349,6 +349,7 @@ class MainActivity : SkinnedActivity() {
     private var playerDisableLongPress = false
     internal var playerLongPressSpeedPercent = 0
     internal var playerDefaultSpeedPercent = 0
+    private var playerSponsorBlockEnabled = false
     private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
     private var removeCommentEmptyGuide = false
@@ -4161,6 +4162,7 @@ class MainActivity : SkinnedActivity() {
         playerDefaultSpeedPercent = PlayerSpeedConfig.normalize(
             uiSettings.int(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
         )
+        playerSponsorBlockEnabled = prefs().getBoolean(FeaturePreferences.PLAYER_SPONSOR_BLOCK_ENABLED, false)
         removeCommentSearchLinks = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS)
         removeCommentEmptyGuide = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE)
         removeCommentVoteWidgets = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS)
@@ -9903,6 +9905,27 @@ class MainActivity : SkinnedActivity() {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.player_speed_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) {
+            topMargin = 14.dp
+            bottomMargin = 5.dp
+        }) {
+            text = stringResource(R.string.player_sponsor_block)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = playerSponsorBlockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                playerSponsorBlockEnabled = checked
+                prefs().edit { putBoolean(FeaturePreferences.PLAYER_SPONSOR_BLOCK_ENABLED, checked) }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.player_sponsor_block_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
