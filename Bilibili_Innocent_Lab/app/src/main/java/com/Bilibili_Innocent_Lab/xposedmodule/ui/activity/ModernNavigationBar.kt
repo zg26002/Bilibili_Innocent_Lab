@@ -25,12 +25,17 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowLegibilityPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.TouchGlowRenderer
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** 触点高光的基础 alpha：与改造前逐字一致，改造只加自适应，不改观感基准。 */
 private const val NAVIGATION_GLOW_BASE_ALPHA = 72
+
+/** 可读性补偿的标签光晕：固定半径，alpha 随补偿量线性增长到此上限。 */
+private const val LABEL_HALO_DP = 3f
+private const val LABEL_HALO_ALPHA = 0.55f
 
 internal enum class ModernNavigationSurface { BAR, SELECTION }
 internal data class ModernNavigationColors(val text: Int, val selectedText: Int, val highlight: Int)
@@ -55,6 +60,7 @@ internal class ModernNavigationBar(
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private val tintSteps = Array(33) { ColorStateList.valueOf(ColorUtils.blendARGB(colors.text, colors.selectedText, it / 32f)) }
     private val renderedTint = IntArray(count) { -1 }
+    private var legibilityStep = 0
     private val iconViews = ArrayList<ImageView>(count)
     private val labelViews = ArrayList<TextView>(count)
     private val items = ArrayList<NavigationItem>(count)
@@ -451,9 +457,37 @@ internal class ModernNavigationBar(
             centerX = glowX,
             centerY = glowY,
             barWidth = width,
-            barHeight = height
+            barHeight = height,
+            viewShiftX = x - initialOffsetX,
+            viewShiftY = y - initialOffsetY
         )
         if (moved && notifyPositionChanged) onVisualMovement()
+    }
+
+    /**
+     * 悬浮栏可读性补偿（`GlowFloatingChrome` 驱动）：前景同向加强 + 标签光晕，0 = 原色、无光晕。
+     * 量化到 1/32：过渡动画逐帧调用，同一档不重复改色。选中强调色只推一小份，保住色相。
+     */
+    fun setLegibility(boost: Float, haloColor: Int) {
+        if (disposed) return
+        val step = (boost.coerceIn(0f, 1f) * 32f).roundToInt()
+        if (step == legibilityStep) return
+        legibilityStep = step
+        val amount = step / 32f
+        val text = GlowLegibilityPolicy.foreground(colors.text, amount)
+        val selectedText = GlowLegibilityPolicy.foreground(
+            colors.selectedText, amount, GlowLegibilityPolicy.ACCENT_FOREGROUND_PUSH
+        )
+        for (i in tintSteps.indices) {
+            tintSteps[i] = ColorStateList.valueOf(ColorUtils.blendARGB(text, selectedText, i / 32f))
+        }
+        renderedTint.fill(-1)
+        // 光晕半径固定、只调 alpha：半径逐帧变会让文字阴影的模糊核反复重建。
+        val halo = ColorUtils.setAlphaComponent(haloColor, (LABEL_HALO_ALPHA * amount * 255f).roundToInt())
+        for (label in labelViews) {
+            if (step == 0) label.setShadowLayer(0f, 0f, 0f, 0) else label.setShadowLayer(dp(LABEL_HALO_DP), 0f, 0f, halo)
+        }
+        applyVisuals(notifyPositionChanged = false)
     }
 
     private fun resetInteraction() {
@@ -509,13 +543,15 @@ internal class ModernNavigationBar(
             maxTravelPx = maximumTravel,
             travelEpsPx = dp(GlowConfig.TRAVEL_EPS_DP),
             velocityRefPxPerSec = dp(GlowConfig.VELOCITY_REF_DP_PER_SEC),
-            edgeBandPx = dp(GlowConfig.EDGE_BAND_DP)
+            edgeBandPx = dp(GlowConfig.EDGE_BAND_DP),
+            continuousEdgePile = true
         )
         private val frame = GlowFrame()
         private val state = GlowState()
         private var lastUpdateNanos = 0L
         private var lastOffsetX = 0f
         private var lastOffsetY = 0f
+        private val screenLoc = IntArray(2)
         private val focusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = dp(1.5f)
@@ -532,7 +568,9 @@ internal class ModernNavigationBar(
             centerX: Float,
             centerY: Float,
             barWidth: Int,
-            barHeight: Int
+            barHeight: Int,
+            viewShiftX: Float = 0f,
+            viewShiftY: Float = 0f
         ) {
             val now = System.nanoTime()
             val dt = if (lastUpdateNanos == 0L) GlowState.DEFAULT_DT_SECONDS
@@ -546,11 +584,25 @@ internal class ModernNavigationBar(
             frame.velocityY = (offsetY - lastOffsetY) / elapsed
             lastOffsetX = offsetX
             lastOffsetY = offsetY
-            frame.centerX = centerX
-            frame.centerY = centerY
+            // 触点换算到当前系：glowX/Y 是按下时刻坐标系，bar 自身已平移 viewShift——
+            // 与 TouchHighlight 同一修正，避免视图平移被重复计入越界量与 room。
+            val touchX = centerX - viewShiftX
+            val touchY = centerY - viewShiftY
+            frame.centerX = touchX
+            frame.centerY = touchY
             frame.boundsWidth = barWidth.toFloat()
             frame.boundsHeight = barHeight.toFloat()
             frame.cornerRadius = barHeight / 2f // 与 outline 的胶囊圆角一致，边缘距离因此精确
+            // 可触达空间：底栏两侧/下缘贴近屏幕边缘时触点走不满 pileRefPx——
+            // 剩余空间交给策略层压缩满额行程，贴屏边缘方向也能堆出完整"集中"。
+            getLocationOnScreen(screenLoc)
+            val metrics = resources.displayMetrics
+            frame.pileRoomPx = reachablePileRoomPx(
+                screenLoc[0], screenLoc[1],
+                screenLoc[0] + width, screenLoc[1] + height,
+                metrics.widthPixels, metrics.heightPixels,
+                touchX, touchY, barWidth.toFloat(), barHeight.toFloat()
+            )
             state.update(frame, dt, radius, NAVIGATION_GLOW_BASE_ALPHA, config)
             invalidate()
         }

@@ -273,6 +273,8 @@ class MainActivity : SkinnedActivity() {
     private var homeRecommendBlockedTids = ""
     private var homeRecommendBlockedAuthors = ""
     private var homeRecommendSectionPickEnabled = false
+    private var blockAiDeclaredVideos = false
+    private var blockAiDeclaredVideosStrongMode = false
     private var videoRelateBlockedAuthors = ""
     private var videoRelateBlockedTags = ""
     internal var removeHomeRecommendLive = false
@@ -460,6 +462,10 @@ class MainActivity : SkinnedActivity() {
     private var compatibilityContent: View? = null
     private var compatibilityChevron: View? = null
     private var compatibilityExpanded = false
+
+    /** 各可展开分节的形变驱动器，以内容 View 为键；视图树重建时随清场一并释放。 */
+    private val sectionExpansionControllers =
+        HashMap<View, SectionExpansionController>()
 
     /** 两个按用途拆分的进阶菜单，沿用同一属性动画。 */
     private var purificationSettingsRoot: View? = null
@@ -1161,6 +1167,28 @@ class MainActivity : SkinnedActivity() {
 
     // internal：弹窗正按主题外移到同包的 Dialogs 文件（`internal fun MainActivity.showX()`），
     // 扩展函数拿不到 private 成员。下面几个 create*/present*/dismiss* 是外移弹窗的共用底座。
+    /**
+     * 收起动画的末帧先按时上屏，下一帧再移窗并执行后续回调。
+     *
+     * `dialog.dismiss()` 同步移窗，并在进程共享的 RenderThread 上销毁这个窗口的硬件渲染资源
+     * （玻璃效果层、纹理）。原来它就跑在动画结束回调里，与收拢到底的最后一帧挤在同一帧：
+     * 2026-09-24 atrace（9 次开关）关闭末帧 `notifyAnimEnd` 7–11ms，偶发紧接两帧
+     * `dequeueBuffer` 15–18ms。推迟一帧后，这段开销落在画面静止的帧里；末帧已收拢到 0、
+     * 窗口动画已关（setWindowAnimations(0)），推迟期间屏幕上没有可见内容。
+     */
+    private fun dismissAfterFinalFrame(dialog: Dialog, then: () -> Unit) {
+        val decor = dialog.window?.decorView
+        val finish = {
+            if (dialog.isShowing) runCatching { dialog.dismiss() }
+            then()
+        }
+        if (decor == null || !decor.isAttachedToWindow || isFinishing || isDestroyed) {
+            finish()
+        } else {
+            decor.postOnAnimation { finish() }
+        }
+    }
+
     internal fun dismissWithAnimation(
         dialog: Dialog,
         container: View,
@@ -1191,7 +1219,10 @@ class MainActivity : SkinnedActivity() {
      *
      * @param cornerRadiusDp 涟漪 mask 圆角：行级条目用小圆角，圆形图标按钮传半径（宽高一半）
      */
-    internal fun selfRippleBackground(cornerRadiusDp: Float = 10f): RippleDrawable {
+    /** 浅色主题的白色涟漪不透明度：玻璃表面约 226–230，按下提亮到约 243。 */
+    private val LIGHT_THEME_RIPPLE_ALPHA = 0x8C
+
+    internal fun selfRippleBackground(cornerRadiusDp: Float = 10f): CoverableRippleDrawable {
         val density = resources.displayMetrics.density
         // 局部 val 不能命名为 cornerRadius：同名会遮蔽 GradientDrawable 的 setCornerRadius
         // 属性，apply 块里给它赋值会报 "'val' cannot be reassigned"。
@@ -1209,11 +1240,16 @@ class MainActivity : SkinnedActivity() {
             cornerRadius = radiusPx
             setColor(Color.WHITE)
         }
-        return RippleDrawable(
-            ColorStateList.valueOf(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x30)),
-            content,
-            mask
-        )
+        // 涟漪色随主题：深色沿用浅灰提亮；浅色改用白色提亮。原来两种主题都取 colorTextGray，
+        // 浅色下它是深灰 #323B42，展开/收起条目按下时先冒出一团灰黑光斑、再铺成整行灰底，
+        // 读作"动画开始/结束时压了一层黑色遮罩"（2026-09-24 用户报告，真机录屏确认是涟漪）。
+        val darkTheme = ColorUtils.calculateLuminance(monetColors.surface) < 0.5
+        val rippleColor = if (darkTheme) {
+            ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x30)
+        } else {
+            ColorUtils.setAlphaComponent(Color.WHITE, LIGHT_THEME_RIPPLE_ALPHA)
+        }
+        return CoverableRippleDrawable(rippleColor, content, mask)
     }
 
     internal fun renderPendingTermsUi(snapshot: UserTermsAuthorizationSnapshot) {
@@ -1997,6 +2033,26 @@ class MainActivity : SkinnedActivity() {
     /** 弹窗背板压暗色（40% 黑）：比 UiTokens.scrim 略重，底页文字不会透过模态面板与内容混排。 */
     private val MODAL_SCRIM_COLOR = 0x66000000.toInt()
 
+    /** 浅色主题背板：背景色压暗 8% 后 50% 不透明的浅色薄纱。 */
+    private val LIGHT_MODAL_SCRIM_DARKEN = 0.08f
+    private val LIGHT_MODAL_SCRIM_ALPHA = 0x80
+
+    /**
+     * 弹窗背板颜色随主题。深色沿用 40% 黑；浅色改为浅色薄纱。
+     *
+     * 2026-09-24 用户报告浅色下形变动画"深色"：背板按进度整屏淡入，而面板从按钮/行里逐渐长出，
+     * 面板最终区域在没被盖满前透出的是已压暗的底页，比打开前和打开后都暗（真机：该区域
+     * 175–190，首尾约 224）。40% 黑是按深色主题定的，深色底上看不出；浅色底上就是一块跟着
+     * 形变伸缩的暗区。薄纱把底页文字对比压下来（文字约 50 → 137，背景基本不变），可读性目的
+     * 不变，形变过程中未覆盖区域不再变暗。
+     */
+    private fun modalScrimColor(): Int =
+        if (ColorUtils.calculateLuminance(monetColors.surface) < 0.5) MODAL_SCRIM_COLOR
+        else ColorUtils.setAlphaComponent(
+            ColorUtils.blendARGB(monetColors.background, Color.BLACK, LIGHT_MODAL_SCRIM_DARKEN),
+            LIGHT_MODAL_SCRIM_ALPHA
+        )
+
     /** 正文起始位移上限（每轴）。够看出"从锚点方向飞来"，又不至于让长卡片整体晃动。 */
     private val CONTENT_TRAVEL_CAP_DP = 20f
 
@@ -2017,7 +2073,7 @@ class MainActivity : SkinnedActivity() {
     internal enum class AnchorStyle { CONTAINER, BUBBLE }
 
     /** 只使用当前可见的点击条目，不能拿整个可滚动父分组作为来源。 */
-    private fun modalAnchorBounds(anchor: View): SettingsBackupMotionRect? {
+    internal fun modalAnchorBounds(anchor: View): SettingsBackupMotionRect? {
         if (!anchor.isAttachedToWindow || !anchor.isShown) return null
         val visible = android.graphics.Rect()
         if (!anchor.getGlobalVisibleRect(visible) || visible.isEmpty) return null
@@ -2084,7 +2140,11 @@ class MainActivity : SkinnedActivity() {
                 (18 * density).toInt()
             )
             background = skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP)
-            elevation = 12 * density
+            // 玻璃皮肤下卡片是半透明的，不能用系统 elevation 投影：系统按不透明物体画阴影，
+            // 半影有一半落在卡片内侧，透过玻璃显成一圈灰带（浅色下约 100px 宽，中间像套了
+            // 一个直角亮框；2026-09-24 用户报告"边缘颜色异常"）。与气泡面板一致不带投影，
+            // 面板靠描边与背板区分。无皮肤时卡片不透明，保留原投影。
+            elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density
             scaleX = 0.85f
             scaleY = 0.85f
             alpha = 0f
@@ -2228,12 +2288,17 @@ class MainActivity : SkinnedActivity() {
             ?.let {
                 IconAnchoredMotionLayer(
                     this,
-                    surfaceBackground = modalBackground.takeIf { cover != null },
+                    // 所有锚点弹窗都把卡片表面托管给持久表面 View：形变首尾与落定画的是
+                    // 同一个 Drawable，落定瞬间不再有 drawable 交接。覆盖式面板沿用此路径。
+                    surfaceBackground = modalBackground
+                        ?: skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP),
                     fallbackColor = monetColors.surface,
-                    surfaceRadiusPx = MODAL_CORNER_RADIUS_DP * density
+                    surfaceRadiusPx = MODAL_CORNER_RADIUS_DP * density,
+                    // 卡片阴影移交表面 View，随帧矩形生长/落定；覆盖式面板保持无阴影。
+                    surfaceElevation = if (cover == null) container.elevation else 0f
                 ).also { layer ->
                     if (layer.usesPersistentSurface) {
-                        // 覆盖式面板的填充与描边始终归承载表面；正文只负责内容动画。
+                        // 填充、描边与投影始终归承载表面；正文只负责内容动画。
                         container.background = null
                         container.elevation = 0f
                     }
@@ -2243,16 +2308,12 @@ class MainActivity : SkinnedActivity() {
         // 平台 dim（FLAG_DIM_BEHIND）不可动画，且会硬切在自绘的形变/气泡入场之前。
         // 叠在父面板上的子面板不再加一层：父面板那层还在，两层 scrim 会叠加得更暗。
         val scrim = if (cover == null) View(this).apply {
-            setBackgroundColor(MODAL_SCRIM_COLOR)
+            setBackgroundColor(modalScrimColor())
             alpha = 0f
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             isFocusable = false
         } else null
-        val root = NativeFrameLayout(this).apply {
-            scrim?.let {
-                addView(it, NativeFrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            }
+        val root = ModalCardRoot(this).apply {
             val cardParams = if (bubblePlacement != null) {
                 NativeFrameLayout.LayoutParams(
                     bubblePlacement.width.toInt(),
@@ -2297,6 +2358,33 @@ class MainActivity : SkinnedActivity() {
             } else {
                 addView(container, cardParams)
             }
+        }
+        // 窗口铺满整屏（见下方 dialog.window 配置），压暗层在最外层盖住状态栏与导航栏；
+        // root 按系统栏内缩，卡片、气泡、覆盖式面板仍以 root 为坐标原点，几何与原来一致。
+        // 2026-09-24 用户报告：原来窗口避开系统栏，打开面板后状态栏一条不被压暗。
+        val windowFrame = NativeFrameLayout(this).apply {
+            scrim?.let {
+                addView(it, NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }
+            addView(root, NativeFrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(windowFrame) { _, insets ->
+            // 与原来 decor 的默认内缩一致：只让开系统栏与刘海。弹窗是 adjustPan，
+            // 输入法由系统平移窗口处理，不在这里内缩。
+            val safe = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                    androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            )
+            val params = root.layoutParams as NativeFrameLayout.LayoutParams
+            if (params.leftMargin != safe.left || params.topMargin != safe.top ||
+                params.rightMargin != safe.right || params.bottomMargin != safe.bottom
+            ) {
+                params.setMargins(safe.left, safe.top, safe.right, safe.bottom)
+                root.layoutParams = params
+            }
+            insets
         }
         // 子面板贴到父面板矩形上。两张 Dialog 的窗口原点不保证相同（状态栏、adjustPan），
         // 所以每次都拿 root 的屏幕位置换算，不假设 0。
@@ -2343,7 +2431,20 @@ class MainActivity : SkinnedActivity() {
         // **必须淡整个 decorView，不能只淡内容容器**：气泡面板的表面（连同描边）是
         // `BubblePanelLayer` 画的，容器自己 `background = null`，淡容器只会让文字变淡、
         // 描边纹丝不动——这条是实测撞出来的，改回去就白修了。
-        val coveredContent = if (cover != null) coveredParent?.window?.decorView else null
+        // 覆盖式子面板要淡出的是父面板的**卡片层**，绝不能淡整张 decorView——父面板的
+        // 压暗层（scrim）就在那张 decorView 里，跟着淡到 0 等于背景压暗整个消失，而子面板
+        // 按"父面板那层还在"的前提**故意没有自己的 scrim**，两条假设一撞就是全屏变亮
+        // （2026-09-22 真机实测：面板外背景 BGR 25.7/29.3/26.1 → 42.0/48.0/42.7，
+        // 底页文字明显透出）。父面板窗口层的孩子是 [scrim, root(卡片层, 飞行标题浮层)]，
+        // 取第一个非 scrim 的孩子即内缩后的 root；拿不到就退回旧行为，不让排版异常变成崩溃。
+        val coveredContent = if (cover != null) coveredParent?.let { parent ->
+            val parentScrim = dialogScrims[parent]
+            val parentRoot = parentScrim?.parent as? ViewGroup
+            val cardLayer = if (parentRoot == null) null else (0 until parentRoot.childCount)
+                .map(parentRoot::getChildAt)
+                .firstOrNull { it !== parentScrim }
+            cardLayer ?: parent.window?.decorView
+        } else null
         val backdropBlur = if (cover != null) null else ModalBackdropBlur.createOrNull(
             window = dialog.window,
             userEnabled = ModalBackdropBlurStore.read(this),
@@ -2361,8 +2462,9 @@ class MainActivity : SkinnedActivity() {
                 },
                 onExpanded = ::notifyExpanded,
                 onClosed = {
-                    dialog.dismiss()
-                    (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    dismissAfterFinalFrame(dialog) {
+                        (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    }
                 }
             )
         } else {
@@ -2371,6 +2473,9 @@ class MainActivity : SkinnedActivity() {
         val titleMotion = if (morphLayer != null) {
             ModalTitleMotion.create(morphAnchor, container.firstChildOrNull<NativeTextView>(), root)
                 ?.also { title ->
+                    // 承载层带 elevation 后 Z>0，会把 Z=0 的兄弟盖到表面之下；
+                    // 飞行标题只抬 Z 序（空 outline，自身不投影），保持在面板之上。
+                    title.elevation = morphLayer.elevation + 1f
                     root.addView(title, NativeFrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 }
@@ -2401,11 +2506,15 @@ class MainActivity : SkinnedActivity() {
                     backdropBlur?.apply(progress)
                     scrim?.alpha = progress
                     coveredContent?.alpha = IconAnchoredMotionSpec.coveredParentAlpha(progress)
+                    // 父面板在子面板当前覆盖的区域里按子面板不透明度让位：外轮廓不回缩、
+                    // 开头不露底、结尾不叠亮，见 ModalCardRoot。承载层 alpha 已在本帧回调前设好。
+                    (coveredContent as? ModalCardRoot)?.excludeMotionSurface(morphLayer, morphLayer.alpha)
                 },
                 onExpanded = ::notifyExpanded,
                 onClosed = {
-                    dialog.dismiss()
-                    (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    dismissAfterFinalFrame(dialog) {
+                        (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    }
                 }
             )
         } else {
@@ -2510,8 +2619,53 @@ class MainActivity : SkinnedActivity() {
             // 于是最后一帧里那份满不透明的飞行标题被窗口动画拖着向上飘走并淡出，
             // 现场就是"返回动画末端，文字上方冒出一个重影往上飞着消失"。
             // 实测本机这两个窗口的 `anim=` 是非零的（`dumpsys window windows`），确认动画开着。
+            // 铺到系统栏下面：浮动窗口默认按系统栏缩框，压暗层盖不到状态栏。
+            // 内容区的内缩由 windowFrame 的 insets 监听自己做。
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(this, false)
+            if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
+                attributes = attributes.apply {
+                    fitInsetsTypes = 0
+                    layoutInDisplayCutoutMode =
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+            } else {
+                addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+                if (AndroidVersion.isAtLeast(AndroidVersion.P)) {
+                    attributes = attributes.apply {
+                        layoutInDisplayCutoutMode =
+                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                }
+            }
+            // 弹窗窗口不带 DRAWS_SYSTEM_BAR_BACKGROUNDS 时，系统按旧语义在它盖住的状态栏上
+            // 画一条不透明黑底、图标强制变白（真机实测状态栏整条 0,0,0，诊断确认弹窗自身
+            // 在该区域没有任何绘制）。由窗口自己接管系统栏背景并设为透明，压暗层才透得出来。
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            @Suppress("DEPRECATION")
+            statusBarColor = Color.TRANSPARENT
+            @Suppress("DEPRECATION")
+            navigationBarColor = Color.TRANSPARENT
+            if (AndroidVersion.isAtLeast(AndroidVersion.Q)) {
+                isStatusBarContrastEnforced = false
+                isNavigationBarContrastEnforced = false
+            }
+            // 窗口盖住状态栏后由它决定图标明暗；沿用页面的设置，打开面板时图标不跳色。
+            val pageBars = androidx.core.view.WindowCompat.getInsetsController(this@MainActivity.window, this@MainActivity.window.decorView)
+            androidx.core.view.WindowCompat.getInsetsController(this, decorView).apply {
+                isAppearanceLightStatusBars = pageBars.isAppearanceLightStatusBars
+                isAppearanceLightNavigationBars = pageBars.isAppearanceLightNavigationBars
+            }
         }
-        dialog.setContentView(root)
+        dialog.setContentView(windowFrame)
+        // 平台弹窗布局（screen_simple 一类）里有 fitsSystemWindows="true" 的容器，会把整个内容区
+        // 连同压暗层按状态栏高度下推，空出的那条由 DecorView 的兜底背景填成黑色（真机实测
+        // 状态栏整条 0,0,0）。祖先链一律不吃 insets，内缩只由 windowFrame 的监听做。
+        var fitAncestor = windowFrame.parent as? View
+        while (fitAncestor != null && fitAncestor !== dialog.window?.decorView) {
+            fitAncestor.fitsSystemWindows = false
+            fitAncestor.setPadding(0, 0, 0, 0)
+            fitAncestor = fitAncestor.parent as? View
+        }
         val releaseElasticInteraction = installDialogElasticInteraction(dialog)
         // **必须在 setContentView 之后**：`PhoneWindow.generateLayout()`（由 setContentView 触发）
         // 会从主题里重新读 `windowAnimationStyle` 覆盖 `params.windowAnimations`，
@@ -2665,6 +2819,7 @@ class MainActivity : SkinnedActivity() {
             dialogScrims.remove(dialog)
             // 硬关会把形变停在半路，父面板不能留着半透明的 alpha：它马上就要重新露出来。
             coveredContent?.alpha = 1f
+            (coveredContent as? ModalCardRoot)?.clearExclusion()
             // 子面板收起后父面板重新露出来，它必须变回"当前弹窗"：这个字段是更新检查
             // 与激活卡那几处 `activeConfirmDialog?.isShowing` 的唯一依据，留空会让它们
             // 以为没有弹窗开着，从而在父面板脸上再弹一个。
@@ -3369,64 +3524,34 @@ class MainActivity : SkinnedActivity() {
     /**
      * 二级菜单公共动效。
      *
-     * 旧实现用 ValueAnimator 每帧写 layoutParams.height，大型进阶菜单会让整棵设置树在
-     * 每一帧重新 measure/layout。这里改为一次正常布局后只更新 alpha/translationY；
-     * 两者均不触发布局，快速反复点击时先清理旧 listener 再取消动画，避免旧收起回调
-     * 把刚展开的内容重新设为 GONE。
+     * 动画由 [SectionExpansionController] 驱动：单一进度弹簧统一控制卡片 clipBounds、
+     * 内容行级联显影、兄弟控件滑行与箭头转角；布局全程保持展开态，p→0 收尾时
+     * GONE 与同帧 offsets 复位互相抵消——不再出现"占位瞬移 + 内容事后淡入"的割裂。
+     * 旧 ValueAnimator 逐帧写 layoutParams.height 的方案会让整棵设置树每帧重新
+     * measure/layout，已被放弃。
      */
     private fun animateSecondarySection(
         content: View,
         chevron: View,
         expanded: Boolean
     ) {
-        val contentAnimator = content.animate()
-        contentAnimator.setListener(null)
-        contentAnimator.cancel()
-        chevron.animate().cancel()
-        val density = resources.displayMetrics.density
-
-        if (expanded) {
-            content.visibility = View.VISIBLE
-            content.alpha = 0f
-            content.translationY = -8f * density
-            contentAnimator
-                .alpha(1f)
-                .translationY(0f)
-                // 让首次 VISIBLE 布局先独占一帧，动画从下一帧稳定起步。
-                .setStartDelay(16L)
-                .setDuration(260L)
-                .setInterpolator(secondaryExpandInterpolator)
-                .start()
-            chevron.animate()
-                .rotation(180f)
-                .setStartDelay(16L)
-                .setDuration(260L)
-                .setInterpolator(secondaryExpandInterpolator)
-                .start()
-        } else {
-            contentAnimator
-                .alpha(0f)
-                .translationY(-5f * density)
-                // ViewPropertyAnimator 会保留上一次 startDelay，收起时必须显式清零。
-                .setStartDelay(0L)
-                .setDuration(200L)
-                .setInterpolator(secondaryCollapseInterpolator)
-                .setListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        content.visibility = View.GONE
-                        content.alpha = 1f
-                        content.translationY = 0f
-                        content.animate().setListener(null)
-                    }
-                })
-                .start()
-            chevron.animate()
-                .rotation(0f)
-                .setStartDelay(0L)
-                .setDuration(200L)
-                .setInterpolator(secondaryCollapseInterpolator)
-                .start()
+        val card = content.parent as? ViewGroup
+        val contentGroup = content as? ViewGroup
+        if (card == null || contentGroup == null) {
+            content.visibility = if (expanded) View.VISIBLE else View.GONE
+            chevron.rotation = if (expanded) 180f else 0f
+            return
         }
+        val controller = sectionExpansionControllers.getOrPut(content) {
+            SectionExpansionController(
+                card = card,
+                content = contentGroup,
+                chevron = chevron,
+                density = resources.displayMetrics.density,
+                notifyPositionChanged = ::notifyPreparedSkinPositionChanged
+            )
+        }
+        controller.setExpanded(expanded)
     }
 
     override fun onStart() {
@@ -3911,6 +4036,8 @@ class MainActivity : SkinnedActivity() {
         enhancementAdvancedContent?.animate()?.setListener(null)
         enhancementAdvancedContent?.animate()?.cancel()
         enhancementAdvancedChevron?.animate()?.cancel()
+        sectionExpansionControllers.values.forEach { it.cancel() }
+        sectionExpansionControllers.clear()
         advancedCategorySections.values.forEach { section ->
             section.content.animate().setListener(null)
             section.content.animate().cancel()
@@ -4077,6 +4204,9 @@ class MainActivity : SkinnedActivity() {
         homeRecommendBlockedAuthors = uiSettings.string(FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS)
         homeRecommendSectionPickEnabled =
             uiSettings.bool(FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED)
+        blockAiDeclaredVideos = uiSettings.bool(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS)
+        blockAiDeclaredVideosStrongMode =
+            uiSettings.bool(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE)
         videoRelateBlockedAuthors = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_AUTHORS)
         videoRelateBlockedTags = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS)
         removeHomeRecommendLive = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE)
@@ -4271,7 +4401,7 @@ class MainActivity : SkinnedActivity() {
                             marginStart = 5.dp
                         }
                     ) {
-                        background = skinFloatingBackground(monetColors.surface, 24f)
+                        background = skinChromeOverlayBackground(monetColors.surface, 24f)
                         foreground = selfRippleBackground(24f)
                         updatePadding(10.dp)
                         setImageResource(R.drawable.ic_search)
@@ -4285,7 +4415,7 @@ class MainActivity : SkinnedActivity() {
                             marginEnd = 12.dp
                         }
                     ) {
-                        background = skinFloatingBackground(monetColors.surface, 24f)
+                        background = skinChromeOverlayBackground(monetColors.surface, 24f)
                         foreground = selfRippleBackground(24f)
                         updatePadding(10.dp)
                         setImageResource(R.drawable.ic_restart)
@@ -4304,7 +4434,7 @@ class MainActivity : SkinnedActivity() {
                         ImageView(
                             lparams = LayoutParams(48.dp, 48.dp)
                         ) {
-                            background = skinFloatingBackground(monetColors.surface, 24f)
+                            background = skinChromeOverlayBackground(monetColors.surface, 24f)
                             foreground = selfRippleBackground(24f)
                             updatePadding(10.dp)
                             setImageResource(R.mipmap.ic_github)
@@ -4370,13 +4500,18 @@ class MainActivity : SkinnedActivity() {
                         background = roundedColor(monetColors.surfaceVariant)
                         // 整卡参与全局长按弹性（与「设置备份与恢复」同款）：涟漪放前景，
                         // renderActivationUi 会在未激活态把 accent 光晕叠在它上面
-                        // （光晕只画边缘，不挡按压反馈）。轻点整卡＝打开统一功能诊断。
+                        // （光晕只画边缘，不挡按压反馈）。
+                        // 可点击只为接住按下、成为弹性目标；轻点整卡**不**打开诊断，入口只有
+                        // 右侧「统一功能诊断」按钮（2026-09-24 用户要求，原先整卡都会跳转）。
                         foreground = selfRippleBackground(ActivationCardVisualSpec.CORNER_RADIUS_DP)
                         isClickable = true
-                        isFocusable = true
+                        isFocusable = false
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                         activationCardView = this
-                        setOnClickListener { launchDiagnostics() }
+                        // 读屏不播报"可激活"：卡片只是状态展示。
+                        ViewCompat.replaceAccessibilityAction(this,
+                            androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                            null, null)
                     }
                 ) {
                     ImageView(
@@ -4485,9 +4620,8 @@ class MainActivity : SkinnedActivity() {
                                 val darkTheme = (resources.configuration.uiMode and
                                     android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
                                     android.content.res.Configuration.UI_MODE_NIGHT_YES
-                                val surfaceColor = ColorUtils.setAlphaComponent(
-                                    neutralColor,
-                                    DiagnosticsEntryVisualSpec.scrimAlpha(darkTheme)
+                                val surfaceColor = DiagnosticsEntryVisualSpec.surfaceColor(
+                                    darkTheme, neutralColor, monetColors.surface
                                 )
                                 background = skinMotionSurfaceBackground(
                                     surfaceColor,
@@ -6200,6 +6334,7 @@ class MainActivity : SkinnedActivity() {
         @StringRes stringResource: Int,
         @DrawableRes imageResource: Int
     ) = Hikagable<MarginLayoutParams> {
+        var linkLabel: NativeTextView? = null
         LinearLayout(
             lparams = LayoutParams(widthMatchParent = true) {
                 updateMargins(left = 15.dp, right = 15.dp)
@@ -6207,7 +6342,11 @@ class MainActivity : SkinnedActivity() {
             init = {
                 gravity = Gravity.CENTER or Gravity.START
                 background = skinCardBackground(monetColors.surfaceVariant)
+                foreground = selfRippleBackground(15f)
                 setPadding(10.dp)
+                setOnClickListener {
+                    linkLabel?.let { label -> label.urls.singleOrNull()?.onClick(label) }
+                }
             }
         ) {
             ImageView(
@@ -6227,6 +6366,12 @@ class MainActivity : SkinnedActivity() {
                 text = stringResource(stringResource)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 11f
+                // 保留自动链接的样式与目标，由整卡处理点击，文字区也能进入全局弹性手势。
+                movementMethod = null
+                isClickable = false
+                isLongClickable = false
+                isFocusable = false
+                linkLabel = this
             }
         }
     }
@@ -10100,6 +10245,73 @@ class MainActivity : SkinnedActivity() {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.recommendation_blocklist_manage_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        // 强力模式的开关本体在总开关下面，总开关关着时置灰：宿主侧它只在总开关开着时生效。
+        var aiStrongModeSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, directToggle = true)
+            text = stringResource(R.string.block_ai_declared_videos)
+            settingsDestinations.bind(SettingsCatalog.ID_AI_DECLARED_VIDEOS_BLOCKED, this)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = blockAiDeclaredVideos
+            setOnCheckedChangeListener { _, isChecked ->
+                blockAiDeclaredVideos = isChecked
+                aiStrongModeSwitch?.isEnabled = isChecked
+                runCatching {
+                    prefs().edit {
+                        putBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, isChecked)
+                    }
+                }.onFailure { t ->
+                    Log.e("BilibiliInnocentLab", "write ai declared videos prefs failed", t)
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.block_ai_declared_videos_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 8.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            aiStrongModeSwitch = this
+            bindFavoriteSwitch(this, FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE, directToggle = true)
+            text = stringResource(R.string.block_ai_declared_videos_strong_mode)
+            settingsDestinations.bind(SettingsCatalog.ID_AI_DECLARED_VIDEOS_STRONG_MODE, this)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = blockAiDeclaredVideosStrongMode
+            isEnabled = blockAiDeclaredVideos
+            setOnCheckedChangeListener { _, isChecked ->
+                blockAiDeclaredVideosStrongMode = isChecked
+                runCatching {
+                    prefs().edit {
+                        putBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE, isChecked)
+                    }
+                }.onFailure { t ->
+                    Log.e("BilibiliInnocentLab", "write ai declared strong mode prefs failed", t)
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.block_ai_declared_videos_strong_mode_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }

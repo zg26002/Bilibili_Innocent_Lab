@@ -82,7 +82,8 @@ import java.util.Locale
 import kotlin.math.abs
 
 /** 只读、本地优先的统一诊断中心。 */
-class DiagnosticsActivity : SkinnedActivity() {
+class DiagnosticsActivity : SkinnedActivity(),
+    com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidStaticBackdropHost {
     private companion object {
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
         const val ENTER_DURATION_MS = 370L
@@ -195,9 +196,8 @@ class DiagnosticsActivity : SkinnedActivity() {
         val darkTheme = (resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val collapsedSurfaceColor = ColorUtils.setAlphaComponent(
-            sourceNeutralColor,
-            DiagnosticsEntryVisualSpec.scrimAlpha(darkTheme)
+        val collapsedSurfaceColor = DiagnosticsEntryVisualSpec.surfaceColor(
+            darkTheme, sourceNeutralColor, monetColors.surface
         )
         motionHost = SettingsBackupMotionHost(
             context = this,
@@ -220,12 +220,14 @@ class DiagnosticsActivity : SkinnedActivity() {
             )
         )
         motionHost.onWindowSizeChangedDuringMotion = ::handleMotionWindowSizeChange
+        motionHost.onContentMoved = ::notifyPreparedSkinPositionChanged
         PredictiveBack.apply(
             window,
             prefs().getBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, false)
         )
         val root = buildRoot()
         setContentView(motionHost)
+        motionHost.installContentInsets()
         motionHost.replacePage(root, requireNotNull(toolbarTitleView))
         bindPreparedSkinRoot(motionHost.liquidBackdropRoot()) {
             if (!isFinishing && !isDestroyed) recreate()
@@ -282,6 +284,7 @@ class DiagnosticsActivity : SkinnedActivity() {
         cancelMotionAnimator()
         if (::motionHost.isInitialized) {
             motionHost.onWindowSizeChangedDuringMotion = null
+            motionHost.onContentMoved = null
         }
         super.onDestroy()
     }
@@ -725,7 +728,6 @@ class DiagnosticsActivity : SkinnedActivity() {
     private fun buildToolbar(): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(10.dp, 0, 8.dp, 0)
-        background = skinTopBarBackground(monetColors.background)
         addView(actionButton("‹", getString(R.string.diagnostics_title)) {
             onBackPressedDispatcher.onBackPressed()
         }.also(motionHost::registerNavigationBack), LinearLayout.LayoutParams(48.dp, 48.dp))
@@ -1320,7 +1322,8 @@ class DiagnosticsActivity : SkinnedActivity() {
                 (18 * density).toInt()
             )
             background = skinModalBackground(monetColors.surface)
-            elevation = 12 * density
+            // 与 MainActivity.createModalContainer 一致：玻璃皮肤下半透明卡片不带系统投影。
+            elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density
             scaleX = 0.85f
             scaleY = 0.85f
             alpha = 0f

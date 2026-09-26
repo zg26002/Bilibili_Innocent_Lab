@@ -135,6 +135,8 @@ story.short_drama.removed
 story.tv.removed
 story.variety.removed
 system.media_notification.enabled
+video.ai_declared.blocked
+video.ai_declared.strong_mode
 video.related.blocked_authors
 video.related.blocked_tags
 video.related.commercial.removed

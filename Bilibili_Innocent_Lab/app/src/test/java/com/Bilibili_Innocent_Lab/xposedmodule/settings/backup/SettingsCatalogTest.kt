@@ -130,11 +130,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 148 settings`() {
-        assertEquals(148, SettingsCatalog.specs.size)
-        assertEquals(148, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(148, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(146, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 150 settings`() {
+        assertEquals(150, SettingsCatalog.specs.size)
+        assertEquals(150, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(150, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(148, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(2, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -480,20 +480,33 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog v28 adds the sponsor block switch`() {
+    fun `catalog v28 adds sponsor block and ai declared video switches`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v28.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 28 }.map { it.id }.sorted())
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 28 }
-        assertEquals(listOf("player.sponsor_block.enabled"), added.map { it.id })
-        val sponsorBlock = added.single()
-        assertEquals("player_sponsor_block_enabled", sponsorBlock.storageKey)
-        assertEquals(SettingValueType.BOOLEAN, sponsorBlock.type)
-        assertEquals(SettingValue.Bool(false), sponsorBlock.defaultValue)
-        assertEquals(RestorePolicy.AUTOMATIC, sponsorBlock.restorePolicy)
-        assertEquals(setOf(ImportEffect.RESTART_BILIBILI), sponsorBlock.effects)
+        assertEquals(
+            listOf(
+                SettingsCatalog.ID_AI_DECLARED_VIDEOS_BLOCKED,
+                SettingsCatalog.ID_AI_DECLARED_VIDEOS_STRONG_MODE,
+                "player.sponsor_block.enabled"
+            ).sorted(),
+            added.map { it.id }.sorted()
+        )
+        added.forEach {
+            assertEquals(SettingValueType.BOOLEAN, it.type)
+            assertEquals(SettingValue.Bool(false), it.defaultValue)
+            assertEquals(RestorePolicy.AUTOMATIC, it.restorePolicy)
+            assertTrue(ImportEffect.RESTART_BILIBILI in it.effects)
+        }
+        assertTrue(added.single { it.id == "player.sponsor_block.enabled" }.effects == setOf(ImportEffect.RESTART_BILIBILI))
+        assertTrue(added.filter { it.id.startsWith("video.ai_declared") }.all { ImportEffect.RECREATE_MODULE_UI in it.effects })
     }
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(112, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(114, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(11, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(25, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

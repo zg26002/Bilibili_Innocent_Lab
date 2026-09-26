@@ -59,32 +59,7 @@ internal class LiquidRefractionBackendApi33(
     private var appliedScatterTapMode = FULL_SCATTER_TAPS
 
     init {
-        shader.setFloatUniform(
-            "refractionHeight",
-            (parameters.refractionHeightDp * density).coerceAtLeast(0.1f)
-        )
-        shader.setFloatUniform("refractionAmount", parameters.refractionAmountDp * density)
-        shader.setFloatUniform("depthEffect", parameters.depthEffect)
-        shader.setFloatUniform(
-            "interiorDistortion",
-            parameters.interiorDistortionDp * density
-        )
-        shader.setFloatUniform("chromaticShift", parameters.chromaticShiftDp * density)
-        shader.setFloatUniform("scatteringRadius", parameters.scatteringRadiusDp * density)
-        shader.setFloatUniform("scatteringStrength", parameters.scatteringStrength)
-        shader.setFloatUniform("chromaMultiplier", parameters.saturation)
-        // 屏幕 y 轴向下；约定 L = (cos θ, sin θ)，外法线朝向光源的边缘被点亮。
-        val lightRadians = Math.toRadians(parameters.highlightAngleDegrees.toDouble())
-        shader.setFloatUniform(
-            "lightDirection",
-            cos(lightRadians).toFloat(),
-            sin(lightRadians).toFloat()
-        )
-        shader.setFloatUniform("specularStrength", parameters.specularStrength)
-        shader.setFloatUniform("fresnelStrength", parameters.fresnelStrength)
-        shader.setFloatUniform("causticLuminanceGain", parameters.causticLuminanceGain)
-        shader.setFloatUniform("innerShadowStrength", parameters.innerShadowStrength)
-        shader.setFloatUniform("scatterTapMode", FULL_SCATTER_TAPS)
+        shader.applyLiquidOpticalUniforms(parameters, density)
     }
 
     override fun bindBackdrop(source: LiquidBackdropSource) {
@@ -114,7 +89,8 @@ internal class LiquidRefractionBackendApi33(
         viewY: Int,
         opticalIntensity: Float,
         stretchDirY: Float,
-        contentAlpha: Float
+        contentAlpha: Float,
+        motionLite: Boolean
     ) {
         checkNotNull(source) { "Liquid refraction backdrop is not bound" }
         shader.setFloatUniform("size", bounds.width().toFloat(), bounds.height().toFloat())
@@ -123,6 +99,7 @@ internal class LiquidRefractionBackendApi33(
         shader.setFloatUniform("cornerRadii", radiusPx, radiusPx, radiusPx, radiusPx)
         shader.setFloatUniform("opticalIntensity", opticalIntensity.coerceIn(1f, 1.85f))
         shader.setFloatUniform("stretchDirY", stretchDirY.coerceIn(-1f, 1f))
+        shader.setFloatUniform("motionLite", if (motionLite) 1f else 0f)
         // paint.alpha 与 shader 输出 alpha 相乘：浮动表面借此透出真实下层内容，
         // 不需要 shader 侧再开一个 uniform。其余表面恒为 255，与旧版逐像素一致。
         paint.alpha = (contentAlpha.coerceIn(0f, 1f) * 255f).roundToInt()
@@ -153,13 +130,42 @@ internal class LiquidRefractionBackendApi33(
     }
 
     private companion object {
-        const val FULL_SCATTER_TAPS = 1f
         const val REDUCED_SCATTER_TAPS = 0f
     }
 }
 
-private const val ROUNDED_RECT_REFRACTION_SHADER = """
+private const val FULL_SCATTER_TAPS = 1f
+
+/**
+ * 与表面几何无关的光学 uniform：折射、散射、色散、边缘光与抖动。窗口玻璃（本后端）与悬浮栏
+ * 内容节点玻璃（`LiquidChromeBackdropApi31`）共用同一份，两条路径的 rim 因此逐项一致。
+ */
+@RequiresApi(33)
+internal fun RuntimeShader.applyLiquidOpticalUniforms(parameters: LiquidParameters, density: Float) {
+    setFloatUniform("refractionHeight", (parameters.refractionHeightDp * density).coerceAtLeast(0.1f))
+    setFloatUniform("refractionAmount", parameters.refractionAmountDp * density)
+    setFloatUniform("depthEffect", parameters.depthEffect)
+    setFloatUniform("interiorDistortion", parameters.interiorDistortionDp * density)
+    setFloatUniform("chromaticShift", parameters.chromaticShiftDp * density)
+    setFloatUniform("scatteringRadius", parameters.scatteringRadiusDp * density)
+    setFloatUniform("scatteringStrength", parameters.scatteringStrength)
+    setFloatUniform("chromaMultiplier", parameters.saturation)
+    // 屏幕 y 轴向下；约定 L = (cos θ, sin θ)，外法线朝向光源的边缘被点亮。
+    val lightRadians = Math.toRadians(parameters.highlightAngleDegrees.toDouble())
+    setFloatUniform("lightDirection", cos(lightRadians).toFloat(), sin(lightRadians).toFloat())
+    setFloatUniform("specularStrength", parameters.specularStrength)
+    setFloatUniform("fresnelStrength", parameters.fresnelStrength)
+    setFloatUniform("causticLuminanceGain", parameters.causticLuminanceGain)
+    setFloatUniform("innerShadowStrength", parameters.innerShadowStrength)
+    setFloatUniform("scatterTapMode", FULL_SCATTER_TAPS)
+    setFloatUniform("dither", parameters.ditherAmplitude)
+    setFloatUniform("nodeInput", 0f)
+}
+
+internal const val ROUNDED_RECT_REFRACTION_SHADER = """
 uniform shader content;
+// RenderEffect 节点子输入只有本次输出裁切范围可用；窗口 BitmapShader 没有此限制。
+uniform float nodeInput;
 
 uniform float2 size;
 uniform float2 offset;
@@ -184,6 +190,11 @@ uniform float innerShadowStrength;
 uniform float scatterTapMode;
 // 超出回弹方向：-1 = 顶部下拉（上边缘发光），+1 = 底部上拉，0 = 无回弹。
 uniform float stretchDirY;
+// 位移抑制期置 1：跳过多次散射取样，只保留单次取样与边缘光项。
+uniform float motionLite;
+// 输出抖动幅度（0..1 色域）：平滑底图在 8 位量化下会出色带，±0.5LSB 噪声把台阶打散。
+// 标准档为 0，整条分支被 uniform 门掉。
+uniform float dither;
 
 const half3 rgbToY = half3(0.2126, 0.7152, 0.0722);
 
@@ -243,14 +254,21 @@ half4 saturateColor(half4 color, float amount) {
 
 half4 sampleContent(float2 canvasCoord) {
     float2 rootCoord = canvasCoord + offset + backdropOrigin;
+    if (nodeInput > 0.5) {
+        rootCoord = clamp(rootCoord, backdropOrigin + float2(0.5),
+            backdropOrigin + size - float2(0.5));
+    }
     return content.eval(rootCoord * backdropScale);
 }
 
-half4 sampleRefracted(float2 canvasCoord, float2 direction, float edgeBoost) {
+// 色散限域在 rim 带内（乘 edgeWeight），且位移小于像素级时直接跳过两次取样。
+// 整块彩边正是旧实现关闭色散的原因：全域等量位移会让内部高对比文字也裂成红蓝边。
+half4 sampleRefracted(float2 canvasCoord, float2 direction, float edgeBoost, float edgeWeight) {
     half4 center = sampleContent(canvasCoord);
     if (chromaticShift <= 0.001) return center;
+    float shift = chromaticShift * edgeBoost * edgeWeight;
+    if (shift < 0.02) return center;
     float2 axis = safeNormalize(direction, float2(1.0, 0.0));
-    float shift = chromaticShift * edgeBoost;
     half red = sampleContent(canvasCoord + axis * shift).r;
     half blue = sampleContent(canvasCoord - axis * shift).b;
     return half4(red, center.g, blue, center.a);
@@ -264,7 +282,7 @@ half4 sampleScattered(
     float edgeReach,
     float edgeBoost
 ) {
-    half4 core = sampleRefracted(canvasCoord, direction, edgeBoost);
+    half4 core = sampleRefracted(canvasCoord, direction, edgeBoost, edgeWeight);
     if (scatteringStrength <= 0.001 || scatteringRadius <= 0.001) return core;
 
     float spatialWeight = clamp(edgeWeight * 0.82 + interiorLens * 0.34, 0.0, 1.0);
@@ -313,6 +331,38 @@ half4 main(float2 coord) {
 
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
     float insideDistance = max(-sd, 0.0);
+
+    // 深内部早退（标准档）。三个条件缺一不可，它们正好是"折射带之外还剩什么"的全部来源：
+    // interiorDistortion 驱动 interiorOffset；scatteringStrength 的散射项在 edgeWeight=0
+    // 时仍由 interiorLens 供权（**不是** 0）；chromaticShift 在旧实现里无视 edgeWeight。
+    // 三者为零时，下面整段的 d / innerShadow / fresnel / specular 逐项含 edgeWeight 因子，
+    // 结果恒等于原始采样。edgeWidthBoost 需要 shapeGrad 才能算，这里用它的上界
+    // （stretchFacing ≤ 1）做保守判据——只会少退出，不会错退出。
+    // ⚠️ 必须保留 saturateColor：chromaMultiplier 是 0.98，直接返回原样本会让内面
+    // 少掉那 2% 去饱和，与边缘带接不上（方案原稿写的 `return sampleContent(coord)` 就漏了）。
+    float edgeWidthBoostMax = 1.0 + 0.45 * max(opticalIntensity - 1.0, 0.0);
+    bool deepInterior = insideDistance >= refractionHeight * edgeWidthBoostMax;
+    if (interiorDistortion <= 0.001 && scatteringStrength <= 0.001 && chromaticShift <= 0.001) {
+        if (deepInterior) {
+            return saturateColor(sampleContent(coord), chromaMultiplier);
+        }
+    }
+
+    // 运动降级档的深内部同样可以早退：lite 本来就只取一次样，而 edgeWeight==0 让折射位移、
+    // 焦散、内阴影、菲涅尔、镜面逐项归零，结果恒等于"按 interiorOffset 取一次样再调饱和"。
+    // 省掉的是 SDF 梯度、方向归一化与三段边缘光的 ALU——卡片内面占了玻璃像素的绝大多数，
+    // 而运动期正是 GPU 最紧的时候（真机：高级材质手风琴 GPU 50th 7ms / 90th 9ms，
+    // `Slow issue draw commands` 占掉帧的 46/47，帧间隔中位 16.6ms＝每两帧丢一帧）。
+    if (motionLite > 0.5 && deepInterior) {
+        float2 liteRoot = coord + offset + backdropOrigin;
+        float2 liteMargin = min(liteRoot, backdropExtent - liteRoot);
+        float liteNearest = max(min(liteMargin.x, liteMargin.y), 0.0);
+        float liteReach = clamp(
+            liteNearest / max(refractionAmount * opticalIntensity + scatteringRadius * opticalIntensity, 1.0),
+            0.0, 1.0
+        );
+        return saturateColor(sampleContent(coord + interiorOffset * liteReach), chromaMultiplier);
+    }
     float smoothRadius = max(radius * 1.5, min(refractionHeight * 1.6, 48.0));
     float gradRadius = min(smoothRadius, min(halfSize.x, halfSize.y));
     float2 shapeGrad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
@@ -321,10 +371,14 @@ half4 main(float2 coord) {
     // 底部上拉 +1）做点积投影，面向回弹方向的边缘吃满 opticalIntensity 增益，
     // 对侧保持基准 1，侧缘随法线夹角无极过渡——不再是四边等亮的均匀描边。
     // 折射带宽度按同一投影加宽，"厚度"也随回弹力度连续变化。
-    float stretchFacing = clamp(
+    // stretchDirY==0（无回弹）时点积恒为 0，edgeBoost 会被钉死在 1——opticalIntensity
+    // 的常驻下限（浮动条凝光）静止时完全不生效。按 |dir| 在全向与定向间连续混合：
+    // 静止时增益均匀点亮整圈，回弹方向出现后平滑收拢到对应边缘。
+    float dirFacing = clamp(
         dot(safeNormalize(shapeGrad, float2(0.0, -1.0)), float2(0.0, stretchDirY)),
         0.0, 1.0
     );
+    float stretchFacing = mix(1.0, dirFacing, abs(stretchDirY));
     float edgeBoost = 1.0 + max(opticalIntensity - 1.0, 0.0) * stretchFacing;
     float edgeWidthBoost = 1.0 + 0.45 * max(opticalIntensity - 1.0, 0.0) * stretchFacing;
     float edgePhase = clamp(
@@ -356,14 +410,36 @@ half4 main(float2 coord) {
         refractionAmount * opticalIntensity + scatteringRadius * opticalIntensity,
         1.0
     );
+    if (nodeInput > 0.5) {
+        float2 nodeMargin = min(rootCoord - backdropOrigin - float2(0.5),
+            backdropOrigin + size - float2(0.5) - rootCoord);
+        nearestMargin = max(min(nodeMargin.x, nodeMargin.y), 0.0);
+        sampleReach = max(2.0 * (refractionAmount + scatteringRadius +
+            interiorDistortion + chromaticShift) * opticalIntensity, 1.0);
+    }
     // 线性收敛保证位移不超过余量；smoothstep 在 t>0.5 时会大于 t，反而重新越界。
     float edgeReach = clamp(nearestMargin / sampleReach, 0.0, 1.0);
 
     float2 refractedCoord = coord + (interiorOffset + d * grad) * edgeReach;
-    half4 color = saturateColor(
-        sampleScattered(refractedCoord, direction, edgeWeight, interiorLens, edgeReach, edgeBoost),
-        chromaMultiplier
-    );
+    // 位移抑制期驱动层已把 content 换成平滑稳定底图，散射多抽样没有收益——
+    // 只保留单次取样；边缘光项（innerShadow/Fresnel/镜面/焦散）照常计算，
+    // 表面在运动中与静止态保持同一条 rim 光晕，不再"消失再加载"。
+    half4 color;
+    if (motionLite > 0.5) {
+        half4 lite = sampleContent(refractedCoord);
+        // 与 sampleScattered 同一条内容感知焦散：lite 省掉的是散射多抽样，
+        // 不是这道边缘亮度——缺了它，抑制/解除切换瞬间边缘高光会明暗一档。
+        float liteLuma = dot(lite.rgb, rgbToY);
+        float liteCaustic = edgeWeight * scatteringStrength * 0.075 * edgeBoost
+            * (1.0 + causticLuminanceGain * liteLuma);
+        lite.rgb = mix(lite.rgb, half3(1.0), clamp(liteCaustic, 0.0, 0.2));
+        color = saturateColor(lite, chromaMultiplier);
+    } else {
+        color = saturateColor(
+            sampleScattered(refractedCoord, direction, edgeWeight, interiorLens, edgeReach, edgeBoost),
+            chromaMultiplier
+        );
+    }
 
     // 折射带内侧的环境遮蔽：在带的中段最深、两端归零，制造"玻璃有厚度"的立体感。
     if (innerShadowStrength > 0.001) {
@@ -382,12 +458,28 @@ half4 main(float2 coord) {
     }
 
     // 定向镜面高光：三次曲线比可变指数更柔和且只需乘法；mix 避免加白后提前截断。
+    // 双叶：主叶朝光源，对侧补一支 0.3 倍的弱叶——真实玻璃厚边在背光侧也有一道
+    // 掠射反光，单叶会让另外两条边完全无光、读作"贴图"而不是"有厚度的玻璃"。
+    // 纯 ALU，不增加纹理取样，且同样被 edgeWeight 限域在 rim 带内。
     if (specularStrength > 0.001) {
         float facing = clamp(dot(grad, lightDirection), 0.0, 1.0);
-        float specularLobe = facing * facing * facing;
-        float specular = specularLobe * edgeWeight
+        float facingBack = clamp(-dot(grad, lightDirection), 0.0, 1.0);
+        float specularLobe = facing * facing * facing
+            + 0.3 * facingBack * facingBack * facingBack;
+        // edgeWeight²：贴边处与原来一样亮，向内收得更快、尾部更柔——高光读作一条细光边，
+        // 而不是铺满整条 rim 带的亮带（2026-09-24 用户要求"边缘高光薄一点，过渡更自然"）。
+        float specular = specularLobe * edgeWeight * edgeWeight
             * specularStrength * edgeBoost * edgeReach;
         color.rgb = mix(color.rgb, half3(1.0), clamp(specular, 0.0, 0.35));
+    }
+
+    // 输出抖动：平滑底图（稳定光学副本、抑制期的 lite 路径）在 8 位量化下会出现色带。
+    // ±0.5LSB 的白噪声把台阶打散，视觉上是纹理而不是环。乘 color.a 保持预乘一致性。
+    // 哈希刻意不用 `sin`：那是每个玻璃像素一次超越函数，而抖动只需要空间上不相关的
+    // 低频噪声。乘加取小数部分同样满足，且是纯 MAD。
+    if (dither > 0.0) {
+        float noise = fract(dot(coord, float2(0.0731429, 0.0517288)) * 137.0);
+        color.rgb += half3((noise - 0.5) * dither * color.a);
     }
     return color;
 }
