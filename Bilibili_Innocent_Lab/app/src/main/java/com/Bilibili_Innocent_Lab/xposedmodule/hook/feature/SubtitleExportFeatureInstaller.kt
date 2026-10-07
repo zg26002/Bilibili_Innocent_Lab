@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -17,8 +19,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import com.highcapable.kavaref.extension.isSubclassOf
 import com.highcapable.kavaref.extension.isStatic
 import java.lang.ref.WeakReference
+import java.lang.reflect.Modifier
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -141,22 +146,33 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
             callback.declaringClass, callback.name, *callback.parameterTypes) {
             after {
                 if (hasThrowable) return@after
-                val core = instance?.let { ownerField.get(it) } ?: return@after
+                val preparedListener = instance ?: return@after
+                val core = preparedListener.let { ownerField.get(it) } ?: return@after
                 val item = runCatching { point.item.invoke(core) }.getOrNull() ?: return@after
                 val rawId = runCatching { point.itemId.invoke(item) as? String }.getOrNull()
                     ?: return@after
                 val identity = extractVideoIdentity(rawId) ?: return@after
+                val candidateActivity = findActivity(preparedListener) ?: findActivity(core) ?: findActivity(item)
                 val post = environment.postToMain ?: return@after
                 post {
                     synchronized(stateLock) {
                         buttons.keys.toList().forEach { removeButton(it) }
                         sessionVideoId = identity.first
                         sessionCid = identity.second
-                        sessionActivity = resumedActivity
+                        if (candidateActivity != null) {
+                            resumedActivity = WeakReference(candidateActivity)
+                            sessionActivity = WeakReference(candidateActivity)
+                        } else {
+                            sessionActivity = resumedActivity
+                        }
                     }
-                    val activity = synchronized(stateLock) { resumedActivity?.get() }
-                    if (activity != null) attachButton(activity, identity.first, identity.second, environment)
-                    environment.logInfo(ID, "video prepared: bvid=${identity.first} cid=${identity.second ?: "unknown"}")
+                    val activity = candidateActivity ?: synchronized(stateLock) { resumedActivity?.get() }
+                    if (activity != null) {
+                        attachButton(activity, identity.first, identity.second, environment)
+                    } else {
+                        environment.logInfo(ID, "video prepared but no current Activity; waiting for resume")
+                    }
+                    environment.logInfo(ID, "video prepared: bvid=${identity.first} cid=${identity.second ?: "unknown"} activity=${activity?.javaClass?.name ?: "none"}")
                 }
             }
         }
@@ -164,7 +180,7 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
 
     private fun attachButton(activity: Activity, videoId: String, cid: Long?, environment: HookEnvironment) {
         if (activity.isFinishing) return
-        val root = activity.findViewById<View>(android.R.id.content) as? ViewGroup ?: return
+        val root = activity.window?.decorView as? ViewGroup ?: return
         if (buttons[activity]?.parent === root) return
         removeButton(activity)
         val button = TextView(activity).apply {
@@ -174,6 +190,9 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
             gravity = Gravity.CENTER
             isClickable = true
             isFocusable = true
+            contentDescription = "导出当前视频字幕"
+            elevation = dp(activity, 24).toFloat()
+            translationZ = dp(activity, 24).toFloat()
             setPadding(dp(activity, 12), 0, dp(activity, 12), 0)
             background = GradientDrawable().apply {
                 cornerRadius = dp(activity, 18).toFloat()
@@ -191,6 +210,7 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
             marginEnd = dp(activity, 12)
         }
         root.addView(button, params)
+        button.bringToFront()
         buttons[activity] = button
         environment.logInfo(ID, "button attached: bvid=$videoId")
     }
@@ -230,6 +250,49 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
         (button.parent as? ViewGroup)?.removeView(button)
     }
 
+    /** Resolve an Activity from player/session objects when installation happened after resume. */
+    private fun findActivity(seed: Any?): Activity? {
+        if (seed == null) return null
+        val seen = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+        val queue = ArrayDeque<Pair<Any, Int>>()
+        queue.add(seed to 0)
+        while (queue.isNotEmpty()) {
+            val (value, depth) = queue.removeFirst()
+            if (!seen.add(value)) continue
+            when (value) {
+                is Activity -> return value
+                is ContextWrapper -> {
+                    val base = value.baseContext
+                    if (base is Activity) return base
+                    if (depth < 3) queue.add(base to depth + 1)
+                }
+            }
+            if (depth >= 3) continue
+            runCatching {
+                value.javaClass.methods
+                    .filter { it.parameterCount == 0 && it.name in setOf("getActivity", "getContext", "getOwnerActivity") }
+                    .forEach { method ->
+                        method.isAccessible = true
+                        method.invoke(value)?.let { queue.add(it to depth + 1) }
+                    }
+            }
+            var owner: Class<*>? = value.javaClass
+            while (owner != null && owner != Any::class.java) {
+                owner.declaredFields
+                    .filter { !Modifier.isStatic(it.modifiers) && !it.type.isPrimitive }
+                    .take(MAX_FIELDS_PER_OBJECT)
+                    .forEach { field ->
+                        runCatching {
+                            field.isAccessible = true
+                            field.get(value)?.let { queue.add(it to depth + 1) }
+                        }
+                    }
+                owner = owner.superclass
+            }
+        }
+        return null
+    }
+
     private fun extractVideoIdentity(raw: String): Pair<String, Long?>? {
         val value = raw.trim()
         Regex("BV1[a-zA-Z0-9]{9}").find(value)?.let { match ->
@@ -254,5 +317,6 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
         const val CAPABILITY = "player_subtitle_export"
         private const val CHANNEL = "subtitle_export_status"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
+        private const val MAX_FIELDS_PER_OBJECT = 24
     }
 }
