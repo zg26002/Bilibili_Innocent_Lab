@@ -124,6 +124,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityFeatu
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityOptions
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SubtitleExportFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -2960,7 +2961,8 @@ class HookEntry : XposedModule() {
                     { record -> HostRuntimeDiagnosticsBridge.recordInstallation(record) }
                 } else {
                     null
-                }
+                },
+                hostContext = authorizationContext.applicationContext ?: authorizationContext
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
 
@@ -3864,6 +3866,7 @@ class HookEntry : XposedModule() {
                     SponsorBlockFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.PLAYER_SPONSOR_BLOCK_ENABLED, false)
                     ),
+                    SubtitleExportFeatureInstaller(),
                     SystemMediaNotificationFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,

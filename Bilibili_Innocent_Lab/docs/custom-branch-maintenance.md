@@ -6,7 +6,7 @@
 
 - `upstream`：原作者仓库，只拉取更新，不直接推送。
 - `origin`：个人仓库 `zg26002/Bilibili_Innocent_Lab`，用于保存和发布本分支。
-- `reply-topology-export`：当前长期维护分支，包含原作者更新、评论脉络导出和 SponsorBlock 跳过功能。
+- `reply-topology-export`：当前长期维护分支，包含原作者更新、评论脉络导出、SponsorBlock 跳过和播放器字幕导出到剪切板功能。
 
 ## 同步原作者更新
 
@@ -22,8 +22,9 @@ git merge upstream/main -m "Merge latest upstream updates while preserving custo
 
 1. 评论脉络 UI、关键词筛选、树状图、局部路径和剪贴板导出，优先保留 `upstream/main` 的最新实现；
 2. SponsorBlock 相关文件和设置项 `player.sponsor_block.enabled` 保留本分支实现；
-3. 设置目录快照与公告数量测试要同步包含 SponsorBlock 项；
-4. 解决后运行 `git diff --check`，确认没有冲突标记，再进行测试。
+3. 字幕导出相关文件为 `SubtitleExportFeatureInstaller.kt`、`SubtitleExportClient.kt` 和 `SubtitleExportText.kt`，按钮默认可用，不新增设置项；
+4. 设置目录快照与公告数量测试要同步包含 SponsorBlock 项；
+5. 解决后运行 `git diff --check`，确认没有冲突标记，再进行测试。
 
 ## 验证、构建和推送
 
