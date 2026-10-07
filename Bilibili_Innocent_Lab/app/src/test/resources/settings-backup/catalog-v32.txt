@@ -108,6 +108,7 @@ player.long_press.disabled
 player.long_press_speed.percent
 player.popup_promotion.hidden
 player.portrait_control.hidden
+player.sponsor_block.enabled
 player.status_bar.transparent
 prompt.teenagers_mode.blocked
 purify.detail.honor.removed
