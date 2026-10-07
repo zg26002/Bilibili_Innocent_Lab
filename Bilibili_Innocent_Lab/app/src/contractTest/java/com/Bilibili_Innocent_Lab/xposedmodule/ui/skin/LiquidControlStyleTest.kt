@@ -73,7 +73,16 @@ class LiquidControlStyleTest {
         // 钉住总数而不是 >=：搬迁不允许让任何一个弹窗掉出统计。新增弹窗时一并改这里。
         // 2026-09-20：液态玻璃并入柔光美学，「界面美学」单选弹窗被「高级材质」开关取代，
         // 弹窗总数 34 → 33。
-        assertEquals(33, dialogs)
+        // 2026-09-26：新增「获取 access_key」风险二次确认（BiliAccessKeyDialogs.kt），33 → 34；
+        // 同日强力模式改为二级勾选面板（AiStrongModeDialogs.kt），34 → 35。
+        // 2026-09-29：新增 JEV 语义判定配置面板（SemanticJevDialogs.kt），35 → 36；
+        // 同日新增各过滤面「屏蔽类型」勾选面板（同文件 showSemanticRulesDialog），36 → 37。
+        // 2026-09-30：多来源 / 判定来源 / 自定义类型的表单弹窗统一经 presentSemanticDialog 构建并展示，
+        // 它取代了原来的 JEV 面板函数，统计仍是 37（新增的弹窗都走这一个受检函数）。
+        // 同日新增 AI 语义判定各面板右上角 ⓘ 的说明子面板（showSemanticInfoDialog），37 → 38。
+        // 2026-10-01：新增「竖屏页互动图标」勾选面板（StoryActionIconsDialogs.kt），38 → 39。
+        // 2026-10-07：新增宿主视频卡片圆角弹窗，39 → 40。
+        assertEquals(40, dialogs)
         // 「管理常用」改用定宽 presentSizedModalDialog（EXACTLY 行宽保证把手钉右缘）。
         assertTrue(SettingsUiSource.function("showSettingsFavoritesDialog").contains("presentSizedModalDialog(dialog, container, width, anchor)"))
         val presenter = SettingsUiSource.function("presentSizedModalDialog")

@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.backup
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -130,12 +131,12 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 150 settings`() {
-        assertEquals(150, SettingsCatalog.specs.size)
-        assertEquals(150, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(150, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(148, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
-        assertEquals(2, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
+    fun `catalog is a unique allowlist with 201 settings`() {
+        assertEquals(201, SettingsCatalog.specs.size)
+        assertEquals(201, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(201, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(198, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertEquals(3, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
     }
@@ -365,15 +366,15 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(28, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(43, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
         assertTrue(added.filter { it.type == SettingValueType.BOOLEAN }.all { it.defaultValue == SettingValue.Bool(false) })
         added.filter { it.type == SettingValueType.INTEGER }.forEach {
             assertEquals(SettingValue.IntValue(0), it.defaultValue)
-            listOf(0, 25, 125, 275, 400).forEach { value -> assertTrue(it.accepts(SettingValue.IntValue(value))) }
-            listOf(-1, 1, 24, 401, Int.MAX_VALUE).forEach { value -> assertFalse(it.accepts(SettingValue.IntValue(value))) }
+            listOf(0, 10, 25, 125, 275, 400, 475, 800).forEach { value -> assertTrue(it.accepts(SettingValue.IntValue(value))) }
+            listOf(-1, 1, 9, 801, Int.MAX_VALUE).forEach { value -> assertFalse(it.accepts(SettingValue.IntValue(value))) }
         }
     }
 
@@ -504,11 +505,166 @@ class SettingsCatalogTest {
         assertTrue(added.filter { it.id.startsWith("video.ai_declared") }.all { ImportEffect.RECREATE_MODULE_UI in it.effects })
     }
 
+    /** access_key 授权：默认关、恢复必须手动确认（换机导入备份不会悄悄重新授权）。 */
+    @Test
+    fun `catalog v29 adds the access key authorization as a manual restore switch`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v29.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 29 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 29 }
+        assertEquals(listOf(SettingsCatalog.ID_BILI_ACCESS_KEY_AUTHORIZED), added.map { it.id })
+        val spec = added.single()
+        assertEquals("bili_access_key_authorized", spec.storageKey)
+        assertEquals(SettingValueType.BOOLEAN, spec.type)
+        assertEquals(SettingValue.Bool(false), spec.defaultValue)
+        assertEquals(RestorePolicy.MANUAL, spec.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
+    }
+
+    /** 强力模式拆分：「获取 access_key」推荐预检独立成项，默认关；授权本身仍是 v29 的手动恢复项。 */
+    @Test
+    fun `catalog v30 splits the ai declared precheck out of strong mode`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v30.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 30 }.map { it.id }.sorted())
+        val spec = SettingsCatalog.specs.single { it.introducedCatalogVersion == 30 }
+        assertEquals(SettingsCatalog.ID_AI_DECLARED_VIDEOS_PRECHECK, spec.id)
+        assertEquals("block_ai_declared_videos_precheck", spec.storageKey)
+        assertEquals(SettingValue.Bool(false), spec.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, spec.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
+    }
+
+    /**
+     * 智能过滤动态（JEV）：独立开关 + 三项非敏感配置，全部默认关/空/中灵敏度、自动恢复。
+     * API Key 是 hook_config 运行时键，**刻意不在目录里**，所以不会进入设置备份。
+     */
+    @Test
+    fun `catalog v31 adds the semantic filter switch and non secret jev settings`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v31.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 31 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 31 }.associateBy { it.id }
+        assertEquals(
+            setOf(
+                SettingsCatalog.ID_DYNAMIC_SEMANTIC_FILTER,
+                SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT,
+                SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY,
+                SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN
+            ),
+            added.keys
+        )
+        assertEquals(SettingValue.Bool(false), added.getValue(SettingsCatalog.ID_DYNAMIC_SEMANTIC_FILTER).defaultValue)
+        assertEquals(SettingValue.Text(""), added.getValue(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT).defaultValue)
+        val sensitivity = added.getValue(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY)
+        assertEquals(SettingValue.Text("medium"), sensitivity.defaultValue)
+        assertEquals(setOf("low", "medium", "high"), sensitivity.allowedStrings)
+        assertEquals(SettingValue.Bool(false), added.getValue(SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN).defaultValue)
+        assertTrue(added.values.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
+        assertTrue(SettingsCatalog.specs.none { "api_key" in it.id || "api_key" in it.storageKey })
+    }
+
+    /** 弹幕 / 评论 / 推荐视频三个智能过滤开关 + 四个面的屏蔽类型勾选；勾选默认值来自预设目录。 */
+    @Test
+    fun `catalog v32 adds semantic filter surfaces and rule selections`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v32.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 32 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 32 }.associateBy { it.id }
+        assertEquals(7, added.size)
+        listOf(
+            SettingsCatalog.ID_DANMAKU_SEMANTIC_FILTER,
+            SettingsCatalog.ID_COMMENT_SEMANTIC_FILTER,
+            SettingsCatalog.ID_VIDEO_SEMANTIC_FILTER
+        ).forEach { assertEquals(SettingValue.Bool(false), added.getValue(it).defaultValue) }
+        mapOf(
+            SettingsCatalog.ID_DYNAMIC_SEMANTIC_RULES to com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface.DYNAMIC,
+            SettingsCatalog.ID_DANMAKU_SEMANTIC_RULES to com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface.DANMAKU,
+            SettingsCatalog.ID_COMMENT_SEMANTIC_RULES to com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface.COMMENT,
+            SettingsCatalog.ID_VIDEO_SEMANTIC_RULES to com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface.VIDEO
+        ).forEach { (id, surface) ->
+            assertEquals(
+                SettingValue.Text(com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticPresets.defaultSelection(surface)),
+                added.getValue(id).defaultValue
+            )
+        }
+        assertTrue(added.values.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
+    }
+
+    /** 判定结果保存时长：1–90 天，默认 7；只影响宿主缓存，恢复时自动写回。 */
+    @Test
+    fun `catalog v33 adds the bounded semantic cache retention`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v33.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 33 }.map { it.id }.sorted())
+        val spec = SettingsCatalog.specs.single { it.introducedCatalogVersion == 33 }
+        assertEquals(SettingsCatalog.ID_SEMANTIC_JEV_CACHE_DAYS, spec.id)
+        assertEquals(SettingValue.IntValue(7), spec.defaultValue)
+        assertEquals(1..90, spec.integerRange)
+        assertTrue(spec.accepts(SettingValue.IntValue(90)))
+        assertFalse(spec.accepts(SettingValue.IntValue(91)))
+        assertFalse(spec.accepts(SettingValue.IntValue(0)))
+        assertEquals(SettingValue.IntValue(90), spec.normalizeForBackup(SettingValue.IntValue(365)))
+    }
+
+    /** 判定后端可选（JEV / OpenAI 兼容）+ 模型名；默认 JEV、模型留空。 */
+    @Test
+    fun `catalog v34 adds the semantic backend and model`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v34.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 34 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 34 }.associateBy { it.id }
+        val provider = added.getValue(SettingsCatalog.ID_SEMANTIC_JEV_PROVIDER)
+        assertEquals(SettingValue.Text("jev"), provider.defaultValue)
+        // v35 起新增 cloudflare（同一个键，取值集合扩大）。
+        assertEquals(setOf("jev", "openai", "cloudflare"), provider.allowedStrings)
+        assertEquals(SettingValue.Text(""), added.getValue(SettingsCatalog.ID_SEMANTIC_JEV_MODEL).defaultValue)
+        assertEquals(2, added.size)
+    }
+
+    /** 等待上限：0 = 自动，其余毫秒 ≤ 30000；只影响宿主，恢复时自动写回。 */
+    @Test
+    fun `catalog v35 adds the semantic wait limit`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v35.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 35 }.map { it.id }.sorted())
+        val spec = SettingsCatalog.specs.single { it.introducedCatalogVersion == 35 }
+        assertEquals(SettingsCatalog.ID_SEMANTIC_JEV_TIMEOUT_MS, spec.id)
+        assertEquals(SettingValue.IntValue(0), spec.defaultValue)
+        assertEquals(0..30_000, spec.integerRange)
+        assertFalse(spec.accepts(SettingValue.IntValue(30_001)))
+    }
+
+    /** 多来源（2–4 号，Key 不在目录）、判定口径、各面判定来源与自定义类型；默认全空 / 自动分流。 */
+    @Test
+    fun `catalog v36 adds multi source routing guidance and custom types`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v36.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 36 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 36 }.associateBy { it.id }
+        assertEquals(18, added.size)
+        assertTrue(added.values.all { it.type == SettingValueType.STRING && it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertTrue(added.keys.none { it.contains("api_key") }) // Key 不进目录与备份
+        val route = added.getValue(SettingsCatalog.ID_COMMENT_SEMANTIC_SOURCE)
+        assertEquals(SettingValue.Text("auto"), route.defaultValue)
+        assertEquals(setOf("auto", "1", "2", "3", "4"), route.allowedStrings)
+        assertEquals(SettingValue.Text("jev"), added.getValue("compat.semantic_source.3.provider").defaultValue)
+        assertFalse(added.getValue(SettingsCatalog.ID_SEMANTIC_JEV_GUIDANCE).accepts(SettingValue.Text("x".repeat(1_001))))
+    }
+
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(114, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
-        assertEquals(11, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
-        assertEquals(25, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
+        assertEquals(136, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(14, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
+        assertEquals(51, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
         val roaming = requireNotNull(SettingsCatalog.byId["compat.roaming.enabled"])
         assertEquals(RestorePolicy.MANUAL, roaming.restorePolicy)
@@ -615,5 +771,110 @@ class SettingsCatalogTest {
             SettingValue.Text(HookEntry.LOG_LEVEL_COMPLETE),
             logLevel.normalizeForBackup(SettingValue.Text("legacy-verbose"))
         )
+    }
+
+    @Test
+    fun `catalog v38 adds independent default off brand splash controls`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v38.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 38 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 38 }
+        assertEquals(setOf(FeaturePreferences.BRAND_SPLASH_SKIP, FeaturePreferences.BRAND_SPLASH_CUSTOM),
+            added.map { it.storageKey }.toSet())
+        assertTrue(added.all { it.defaultValue == SettingValue.Bool(false) && ImportEffect.RESTART_BILIBILI in it.effects })
+    }
+
+    @Test
+    fun `catalog v37 adds six default off story action icon switches`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v37.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 37 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 37 }
+        assertEquals(6, added.size)
+        assertTrue(added.all {
+            it.type == SettingValueType.BOOLEAN && it.defaultValue == SettingValue.Bool(false) &&
+                it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects
+        })
+        assertEquals(
+            com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryActionIcon.preferenceKeys.toSet(),
+            added.map { it.storageKey }.toSet()
+        )
+    }
+
+    @Test
+    fun `catalog v39 adds two default off host bottom bar visual effect switches`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v39.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 39 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 39 }
+        assertEquals(2, added.size)
+        assertTrue(added.all {
+            it.type == SettingValueType.BOOLEAN && it.defaultValue == SettingValue.Bool(false) &&
+                it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects
+        })
+        assertEquals(
+            setOf(
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW
+            ),
+            added.map { it.storageKey }.toSet()
+        )
+    }
+
+    @Test
+    fun `catalog v40 adds two default off host top bar visual effect switches`() {
+        val expected = requireNotNull(
+            javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v40.txt")
+        ).bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 40 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 40 }
+        assertEquals(2, added.size)
+        assertTrue(added.all {
+            it.type == SettingValueType.BOOLEAN && it.defaultValue == SettingValue.Bool(false) &&
+                it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects
+        })
+        assertEquals(
+            setOf(
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS,
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW
+            ),
+            added.map { it.storageKey }.toSet()
+        )
+    }
+    @Test
+    fun `catalog v41 adds independently restorable default off bottom bar layout switches`() {
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 41 }
+        assertEquals(setOf("host.bottom_bar.compact.enabled", "host.bottom_bar.icon_only.enabled"),
+            added.map { it.id }.toSet())
+        assertTrue(added.all {
+            it.type == SettingValueType.BOOLEAN && it.defaultValue == SettingValue.Bool(false) &&
+                it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects
+        })
+    }
+
+    @Test
+    fun `catalog v42 adds one default off video card style setting`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v42.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 42 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 42 }
+        assertEquals("host.video_cards.enabled", added.id)
+        assertEquals(FeaturePreferences.HOST_VIDEO_CARDS, added.storageKey)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+    }
+
+    @Test
+    fun `catalog v43 adds restorable video card radius with legacy default`() {
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 43 }
+        assertEquals("host.video_cards.radius_dp", added.id)
+        assertEquals(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, added.storageKey)
+        assertEquals(SettingValue.IntValue(-1), added.defaultValue)
+        assertEquals(-1..40, added.integerRange)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
     }
 }

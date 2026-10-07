@@ -60,11 +60,12 @@ class GlowFloatingChromeWiringTest {
     @Test fun dissolveDrawsTheVisibleRootBitmapNotTheOpticalCopy() {
         val source = source("$base/skin/liquid/LiquidBackdropSource.kt")
         val presentation = source.after("fun drawPresentationRegion(").before("\n    }\n")
-        // 溶解区必须与根背景逐像素一致：根背景画的是 bitmap（含颗粒），不是光学副本。
+        // 溶解区必须与根背景逐像素一致：根背景画的是 bitmap，不使用光学副本。
         assertTrue(source.contains("BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)"))
         assertFalse(presentation.contains("opticalBitmap"))
         assertFalse(presentation.contains("bitmapShader.setLocalMatrix"))
-        assertFalse(presentation.contains("maskShader"))
+        assertFalse(presentation.contains("opticalRegionShader"))
+        assertFalse(presentation.contains("suppressionShader"))
         assertTrue(presentation.contains("PorterDuff.Mode.DST_IN"))
     }
 
@@ -94,5 +95,15 @@ class GlowFloatingChromeWiringTest {
         assertTrue(renderer.contains("LiquidLegibilityTuning.tintAlpha(baseFraction, legibility.boost)"))
         // 光学参数与绘制同一条映射，策略算出的补偿与实际加厚一致。
         assertTrue(renderer.contains("maxTintAlpha = LiquidLegibilityTuning.ceiling(base)"))
+    }
+
+    /** 顶栏胶囊本体没有文字：补偿只加在圆按钮上，本体保持清透；底栏的标签压在玻璃上，照旧加厚。 */
+    @Test fun topCapsuleBodyStaysClearWhileItsButtonsCarryCompensation() {
+        val chrome = SourceContract.read("ui/skin/engine/GlowFloatingChrome.kt")
+        assertTrue(chrome.contains("glow?.setSurfaceLegibility(surface.host, value.takeIf { surface.thickenHost })"))
+        assertTrue(chrome.contains("surface.companions.forEach { glow?.setSurfaceLegibility(it, value) }"))
+        val home = SourceContract.read("ui/activity/SettingsHomePresenter.kt")
+        assertTrue(home.contains("companions = icons, thickenHost = false"))
+        assertTrue(home.contains("chrome.attach(dock, GlowScrollEdge.BOTTOM, activity.getColor(R.color.colorTextGray)) { boost ->"))
     }
 }

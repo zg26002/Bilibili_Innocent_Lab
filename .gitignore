@@ -1,0 +1,21 @@
+# Build output
+build/
+.gradle/
+.kotlin/
+
+# Python bytecode（.github/release-templates 下的发布说明生成器）
+__pycache__/
+*.py[cod]
+
+# Local tooling state
+.zcode/
+
+# Local agent instructions (machine-specific)
+/AGENTS.md
+
+# Android / IDE
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/

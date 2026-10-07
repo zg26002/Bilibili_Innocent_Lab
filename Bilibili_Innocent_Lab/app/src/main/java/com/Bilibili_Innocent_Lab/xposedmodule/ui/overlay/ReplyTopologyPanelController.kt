@@ -1,11 +1,14 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay
 
 import android.app.Activity
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import com.highcapable.betterandroid.ui.extension.view.child
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -30,6 +33,8 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
 
     @Volatile
     private var panelRef: WeakReference<ReplyTopologyPanelView>? = null
+    @Volatile
+    private var parentRef: WeakReference<ViewGroup>? = null
 
     /** 退出动画进行中的面板（仅主线程访问）：会话已失效，动画结束后统一移除并回调。 */
     private var exitingPanel: ExitingPanel? = null
@@ -43,13 +48,14 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         config: ReplyTopologyPanelConfig = ReplyTopologyPanelConfig(
             strings = ReplyTopologyPanelStrings.resolve(activity)
         ),
-        listener: ReplyTopologyPanelListener
+        listener: ReplyTopologyPanelListener,
+        sourceAnchor: View? = null
     ): ReplyTopologyPanelSession? {
         if (Looper.myLooper() !== Looper.getMainLooper()) return null
         if (activity.isFinishing || activity.isDestroyed) return null
 
         detachOnMain(null, ReplyTopologyPanelCloseReason.REPLACED)
-        val parent = findOverlayParent(activity) ?: return null
+        val parent = findOverlayParent(activity, sourceAnchor) ?: return null
         val session = ReplyTopologyPanelSession(generation.incrementAndGet())
         val theme = config.theme ?: ReplyTopologyPanelTheme.resolve(activity)
         val panel = ReplyTopologyPanelView(
@@ -71,6 +77,13 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
             activeSessionId = session.id
             activityRef = WeakReference(activity)
             panelRef = WeakReference(panel)
+            parentRef = WeakReference(parent)
+            var front = 0f
+            for (i in 0 until parent.childCount) {
+                val z = parent.child(i).z
+                if (z.isFinite()) front = maxOf(front, z)
+            }
+            panel.z = maxOf(panel.z, front + parent.resources.displayMetrics.density)
             parent.addView(panel, params)
             panel.bindBoundsParent(parent, config.initialPosition.normalized())
             panel.playEntrance()
@@ -79,6 +92,7 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
             activeSessionId = NO_SESSION
             activityRef = null
             panelRef = null
+            parentRef = null
             runCatching { panel.releaseResources() }
             runCatching { (panel.parent as? ViewGroup)?.removeView(panel) }
             null
@@ -130,8 +144,9 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         val panel = currentPanel(session) ?: return false
         val activity = activityRef?.get() ?: return false
         val parent = panel.parent as? ViewGroup ?: return false
-        val expectedParent = findOverlayParent(activity) ?: return false
+        val expectedParent = parentRef?.get() ?: return false
         return parent === expectedParent &&
+            parent.isAttachedToWindow && parent.windowToken == panel.windowToken &&
             panel.isAttachedToWindow &&
             panel.windowToken != null &&
             !panel.isReleased
@@ -161,6 +176,7 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         activeSessionId = NO_SESSION
         activityRef = null
         panelRef = null
+        parentRef = null
         val listener = panel.releaseResources()
         listener?.onClosed(ReplyTopologyPanelCloseReason.HOST_DETACHED)
     }
@@ -203,6 +219,7 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
             activeSessionId = NO_SESSION
             activityRef = null
             panelRef = null
+            parentRef = null
             return
         }
 
@@ -210,6 +227,7 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         activeSessionId = NO_SESSION
         activityRef = null
         panelRef = null
+        parentRef = null
 
         // 只有用户关闭与程序化关闭走离场动画；替换（即将挂新面板）与宿主 detach
         //（decor 已销毁或正在销毁）保持同帧移除，与原有语义一致。
@@ -250,10 +268,19 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         listener?.onClosed(exiting.reason)
     }
 
-    private fun findOverlayParent(activity: Activity): ViewGroup? {
+    private fun findOverlayParent(activity: Activity, sourceAnchor: View?): ViewGroup? {
+        val decor = activity.window?.decorView as? ViewGroup
+        if (sourceAnchor != null) {
+            // Story 评论可在独立 Dialog/Popup Window 中；Activity content 的 elevation 跨不了窗口。
+            if (!sourceAnchor.isAttachedToWindow || sourceAnchor.windowToken == null) return null
+            val root = sourceAnchor.rootView as? ViewGroup ?: return null
+            if (!root.isAttachedToWindow || root.windowToken != sourceAnchor.windowToken) return null
+            return replyTopologyOverlayParent(root, decor, activity.findViewById<ViewGroup?>(android.R.id.content),
+                sourceProvided = true, sourceAttached = true, sameWindow = true)
+        }
         val content = activity.findViewById<ViewGroup?>(android.R.id.content)
-        if (content != null) return content
-        return activity.window?.decorView as? ViewGroup
+        return replyTopologyOverlayParent(null, decor, content,
+            sourceProvided = false, sourceAttached = false, sameWindow = false)
     }
 
     private fun panelDimensions(
@@ -265,17 +292,12 @@ internal class ReplyTopologyPanelController : ReplyTopologyPanelHost {
         val availableWidth = parent.width.takeIf { it > 0 } ?: display.widthPixels
         val availableHeight = parent.height.takeIf { it > 0 } ?: display.heightPixels
         val edge = (8f * density).roundToInt()
-        val maxAvailableWidth = (availableWidth - edge * 2).coerceAtLeast(1)
-        val maxAvailableHeight = (availableHeight - edge * 2).coerceAtLeast(1)
-
-        val minWidth = ((config.minWidthDp * density).roundToInt()).coerceAtMost(maxAvailableWidth)
-        val maxWidth = ((config.maxWidthDp * density).roundToInt()).coerceAtMost(maxAvailableWidth)
-        val minHeight = ((config.minHeightDp * density).roundToInt()).coerceAtMost(maxAvailableHeight)
-        val maxHeight = ((config.maxHeightDp * density).roundToInt()).coerceAtMost(maxAvailableHeight)
-        val width = (availableWidth * config.widthFraction).roundToInt()
-            .coerceIn(minWidth.coerceAtMost(maxWidth), maxWidth.coerceAtLeast(minWidth))
-        val height = (availableHeight * config.heightFraction).roundToInt()
-            .coerceIn(minHeight.coerceAtMost(maxHeight), maxHeight.coerceAtLeast(minHeight))
+        val insets = Rect()
+        replyTopologyWindowInsets(parent, insets)
+        val maxAvailableWidth = (availableWidth - insets.left - insets.right - edge * 2).coerceAtLeast(1)
+        val maxAvailableHeight = (availableHeight - insets.top - insets.bottom - edge * 2).coerceAtLeast(1)
+        val width = ReplyTopologyPanelSizing.dimension(maxAvailableWidth, density, config.widthFraction, config.minWidthDp, config.maxWidthDp)
+        val height = ReplyTopologyPanelSizing.dimension(maxAvailableHeight, density, config.heightFraction, config.minHeightDp, config.maxHeightDp)
         return width to height
     }
 

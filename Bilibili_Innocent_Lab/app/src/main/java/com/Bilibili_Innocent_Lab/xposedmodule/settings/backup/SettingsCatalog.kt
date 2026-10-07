@@ -8,6 +8,15 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticJudge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticPresets
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSensitivity
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSettings
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticBackend
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticCustomRule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticGuidance
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticRoute
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
@@ -21,7 +30,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropB
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 28
+    const val CATALOG_VERSION = 43
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -38,6 +47,48 @@ internal object SettingsCatalog {
     const val ID_MATERIAL_COLOR_SPEC = "module_ui.material_color_spec"
     const val ID_AI_DECLARED_VIDEOS_BLOCKED = "video.ai_declared.blocked"
     const val ID_AI_DECLARED_VIDEOS_STRONG_MODE = "video.ai_declared.strong_mode"
+    const val ID_BILI_ACCESS_KEY_AUTHORIZED = "communication.bili_access_key.authorized"
+    const val ID_AI_DECLARED_VIDEOS_PRECHECK = "video.ai_declared.precheck"
+    const val ID_DYNAMIC_SEMANTIC_FILTER = "dynamic.semantic_filter.enabled"
+    const val ID_SEMANTIC_JEV_ENDPOINT = "compat.semantic_jev.endpoint"
+    const val ID_SEMANTIC_JEV_SENSITIVITY = "compat.semantic_jev.sensitivity"
+    const val ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN = "compat.semantic_jev.wait_first_screen"
+    const val ID_DYNAMIC_SEMANTIC_RULES = "dynamic.semantic_filter.rules"
+    const val ID_DANMAKU_SEMANTIC_FILTER = "player.danmaku.semantic_filter.enabled"
+    const val ID_DANMAKU_SEMANTIC_RULES = "player.danmaku.semantic_filter.rules"
+    const val ID_COMMENT_SEMANTIC_FILTER = "comments.semantic_filter.enabled"
+    const val ID_COMMENT_SEMANTIC_RULES = "comments.semantic_filter.rules"
+    const val ID_VIDEO_SEMANTIC_FILTER = "video.semantic_filter.enabled"
+    const val ID_VIDEO_SEMANTIC_RULES = "video.semantic_filter.rules"
+    const val ID_SEMANTIC_JEV_CACHE_DAYS = "compat.semantic_jev.cache_days"
+    const val ID_SEMANTIC_JEV_PROVIDER = "compat.semantic_jev.provider"
+    const val ID_SEMANTIC_JEV_MODEL = "compat.semantic_jev.model"
+    const val ID_SEMANTIC_JEV_TIMEOUT_MS = "compat.semantic_jev.timeout_ms"
+    const val ID_SEMANTIC_JEV_GUIDANCE = "compat.semantic_jev.guidance"
+    const val ID_SEMANTIC_SOURCES = "compat.semantic_source.2.provider"
+    const val ID_DYNAMIC_SEMANTIC_SOURCE = "dynamic.semantic_filter.source"
+    const val ID_DANMAKU_SEMANTIC_SOURCE = "player.danmaku.semantic_filter.source"
+    const val ID_COMMENT_SEMANTIC_SOURCE = "comments.semantic_filter.source"
+    const val ID_VIDEO_SEMANTIC_SOURCE = "video.semantic_filter.source"
+    const val ID_DYNAMIC_SEMANTIC_CUSTOM_RULES = "dynamic.semantic_filter.custom_rules"
+    const val ID_DANMAKU_SEMANTIC_CUSTOM_RULES = "player.danmaku.semantic_filter.custom_rules"
+    const val ID_COMMENT_SEMANTIC_CUSTOM_RULES = "comments.semantic_filter.custom_rules"
+    const val ID_VIDEO_SEMANTIC_CUSTOM_RULES = "video.semantic_filter.custom_rules"
+
+    /** 各过滤面的"判定来源 / 自定义类型"目录 id。 */
+    fun semanticRouteId(surface: SemanticSurface): String = when (surface) {
+        SemanticSurface.DYNAMIC -> ID_DYNAMIC_SEMANTIC_SOURCE
+        SemanticSurface.DANMAKU -> ID_DANMAKU_SEMANTIC_SOURCE
+        SemanticSurface.COMMENT -> ID_COMMENT_SEMANTIC_SOURCE
+        SemanticSurface.VIDEO -> ID_VIDEO_SEMANTIC_SOURCE
+    }
+
+    fun semanticCustomRulesId(surface: SemanticSurface): String = when (surface) {
+        SemanticSurface.DYNAMIC -> ID_DYNAMIC_SEMANTIC_CUSTOM_RULES
+        SemanticSurface.DANMAKU -> ID_DANMAKU_SEMANTIC_CUSTOM_RULES
+        SemanticSurface.COMMENT -> ID_COMMENT_SEMANTIC_CUSTOM_RULES
+        SemanticSurface.VIDEO -> ID_VIDEO_SEMANTIC_CUSTOM_RULES
+    }
 
     private fun bool(
         id: String,
@@ -109,6 +160,15 @@ internal object SettingsCatalog {
         effects = effects
     )
 
+    private fun semanticRules(id: String, storageKey: String, surface: SemanticSurface) = text(
+        id,
+        storageKey,
+        R.string.semantic_rules_title,
+        default = SemanticPresets.defaultSelection(surface),
+        maxStringLength = SemanticPresets.MAX_SELECTION_LENGTH,
+        introducedCatalogVersion = 32
+    )
+
     val specs: List<SettingSpec> = listOf(
         bool("ads.pause.hidden", HookEntry.PREF_ENABLED, R.string.paused_page_ad_enable, default = true),
         bool("ads.game_card.hidden", HookEntry.PREF_GAMECARD_ENABLED, R.string.gamecard_ad_enable, default = true),
@@ -123,6 +183,62 @@ internal object SettingsCatalog {
         bool("communication.compatibility.enabled", CommunicationCompatibilityStore.KEY,
             R.string.communication_compatibility_mode, default = CommunicationCompatibilityStore.DEFAULT,
             restorePolicy = RestorePolicy.MANUAL, introducedCatalogVersion = 22),
+        bool(ID_BILI_ACCESS_KEY_AUTHORIZED, FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED,
+            R.string.bili_access_key_authorize, restorePolicy = RestorePolicy.MANUAL, introducedCatalogVersion = 29),
+        // JEV 语义判定的非敏感配置；API Key 是 hook_config 运行时键，不进目录、不进备份。
+        text(ID_SEMANTIC_JEV_ENDPOINT, FeaturePreferences.SEMANTIC_JEV_ENDPOINT, R.string.semantic_jev_endpoint,
+            maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 31),
+        text(ID_SEMANTIC_JEV_SENSITIVITY, FeaturePreferences.SEMANTIC_JEV_SENSITIVITY, R.string.semantic_jev_sensitivity,
+            default = SemanticSensitivity.DEFAULT.id, allowed = SemanticSensitivity.IDS, introducedCatalogVersion = 31),
+        bool(ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN, FeaturePreferences.SEMANTIC_JEV_WAIT_FIRST_SCREEN,
+            R.string.semantic_jev_wait_first_screen, introducedCatalogVersion = 31),
+        integer(ID_SEMANTIC_JEV_CACHE_DAYS, FeaturePreferences.SEMANTIC_JEV_CACHE_DAYS, R.string.semantic_jev_cache_days,
+            default = SemanticSettings.DEFAULT_CACHE_DAYS,
+            range = SemanticSettings.MIN_CACHE_DAYS..SemanticSettings.MAX_CACHE_DAYS, introducedCatalogVersion = 33),
+        text(ID_SEMANTIC_JEV_PROVIDER, FeaturePreferences.SEMANTIC_JEV_PROVIDER, R.string.semantic_jev_provider,
+            default = SemanticBackend.JEV, allowed = SemanticBackend.IDS, introducedCatalogVersion = 34),
+        text(ID_SEMANTIC_JEV_MODEL, FeaturePreferences.SEMANTIC_JEV_MODEL, R.string.semantic_jev_model,
+            maxStringLength = SemanticBackend.MAX_MODEL_LENGTH, introducedCatalogVersion = 34),
+        // 0 = 自动（各面默认值）；非 0 时宿主侧再夹到 500–30000。
+        integer(ID_SEMANTIC_JEV_TIMEOUT_MS, FeaturePreferences.SEMANTIC_JEV_TIMEOUT_MS, R.string.semantic_jev_timeout,
+            default = 0, range = 0..SemanticSettings.MAX_TIMEOUT_MS, introducedCatalogVersion = 35),
+        // v36：多来源（2–4 号，Key 是运行时键不进备份）、判定口径、各面判定来源与自定义类型。
+        text(ID_SEMANTIC_JEV_GUIDANCE, FeaturePreferences.SEMANTIC_JEV_GUIDANCE, R.string.semantic_jev_guidance,
+            maxStringLength = SemanticGuidance.MAX_LENGTH, introducedCatalogVersion = 36),
+        text(ID_SEMANTIC_SOURCES, FeaturePreferences.SEMANTIC_SOURCE_2_PROVIDER, R.string.semantic_source_2_label,
+            default = SemanticBackend.JEV, allowed = SemanticBackend.IDS, introducedCatalogVersion = 36),
+        text("compat.semantic_source.2.endpoint", FeaturePreferences.SEMANTIC_SOURCE_2_ENDPOINT, R.string.semantic_source_2_label,
+            maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 36),
+        text("compat.semantic_source.2.model", FeaturePreferences.SEMANTIC_SOURCE_2_MODEL, R.string.semantic_source_2_label,
+            maxStringLength = SemanticBackend.MAX_MODEL_LENGTH, introducedCatalogVersion = 36),
+        text("compat.semantic_source.3.provider", FeaturePreferences.SEMANTIC_SOURCE_3_PROVIDER, R.string.semantic_source_3_label,
+            default = SemanticBackend.JEV, allowed = SemanticBackend.IDS, introducedCatalogVersion = 36),
+        text("compat.semantic_source.3.endpoint", FeaturePreferences.SEMANTIC_SOURCE_3_ENDPOINT, R.string.semantic_source_3_label,
+            maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 36),
+        text("compat.semantic_source.3.model", FeaturePreferences.SEMANTIC_SOURCE_3_MODEL, R.string.semantic_source_3_label,
+            maxStringLength = SemanticBackend.MAX_MODEL_LENGTH, introducedCatalogVersion = 36),
+        text("compat.semantic_source.4.provider", FeaturePreferences.SEMANTIC_SOURCE_4_PROVIDER, R.string.semantic_source_4_label,
+            default = SemanticBackend.JEV, allowed = SemanticBackend.IDS, introducedCatalogVersion = 36),
+        text("compat.semantic_source.4.endpoint", FeaturePreferences.SEMANTIC_SOURCE_4_ENDPOINT, R.string.semantic_source_4_label,
+            maxStringLength = SemanticJudge.MAX_ENDPOINT_LENGTH, introducedCatalogVersion = 36),
+        text("compat.semantic_source.4.model", FeaturePreferences.SEMANTIC_SOURCE_4_MODEL, R.string.semantic_source_4_label,
+            maxStringLength = SemanticBackend.MAX_MODEL_LENGTH, introducedCatalogVersion = 36),
+        text(ID_DYNAMIC_SEMANTIC_SOURCE, FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_SOURCE, R.string.semantic_route_title,
+            default = SemanticRoute.AUTO, allowed = SemanticRoute.IDS, introducedCatalogVersion = 36),
+        text(ID_DANMAKU_SEMANTIC_SOURCE, FeaturePreferences.DANMAKU_SEMANTIC_FILTER_SOURCE, R.string.semantic_route_title,
+            default = SemanticRoute.AUTO, allowed = SemanticRoute.IDS, introducedCatalogVersion = 36),
+        text(ID_COMMENT_SEMANTIC_SOURCE, FeaturePreferences.COMMENT_SEMANTIC_FILTER_SOURCE, R.string.semantic_route_title,
+            default = SemanticRoute.AUTO, allowed = SemanticRoute.IDS, introducedCatalogVersion = 36),
+        text(ID_VIDEO_SEMANTIC_SOURCE, FeaturePreferences.VIDEO_SEMANTIC_FILTER_SOURCE, R.string.semantic_route_title,
+            default = SemanticRoute.AUTO, allowed = SemanticRoute.IDS, introducedCatalogVersion = 36),
+        text(ID_DYNAMIC_SEMANTIC_CUSTOM_RULES, FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_CUSTOM_RULES, R.string.semantic_custom_rules_title,
+            maxStringLength = SemanticCustomRule.MAX_STORAGE_LENGTH, introducedCatalogVersion = 36),
+        text(ID_DANMAKU_SEMANTIC_CUSTOM_RULES, FeaturePreferences.DANMAKU_SEMANTIC_FILTER_CUSTOM_RULES, R.string.semantic_custom_rules_title,
+            maxStringLength = SemanticCustomRule.MAX_STORAGE_LENGTH, introducedCatalogVersion = 36),
+        text(ID_COMMENT_SEMANTIC_CUSTOM_RULES, FeaturePreferences.COMMENT_SEMANTIC_FILTER_CUSTOM_RULES, R.string.semantic_custom_rules_title,
+            maxStringLength = SemanticCustomRule.MAX_STORAGE_LENGTH, introducedCatalogVersion = 36),
+        text(ID_VIDEO_SEMANTIC_CUSTOM_RULES, FeaturePreferences.VIDEO_SEMANTIC_FILTER_CUSTOM_RULES, R.string.semantic_custom_rules_title,
+            maxStringLength = SemanticCustomRule.MAX_STORAGE_LENGTH, introducedCatalogVersion = 36),
         bool("ads.home_banner.hidden", HookEntry.PREF_BANNER_ENABLED, R.string.banner_ad_enable, default = true),
         bool("ads.merchandise.hidden", HookEntry.PREF_MERCH_ENABLED, R.string.merch_ad_enable, default = true),
 
@@ -158,6 +274,8 @@ internal object SettingsCatalog {
         // 两边都读，所以重启宿主与重建模块界面都要。
         bool(ID_AI_DECLARED_VIDEOS_STRONG_MODE, FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE,
             R.string.block_ai_declared_videos_strong_mode, introducedCatalogVersion = 28),
+        bool(ID_AI_DECLARED_VIDEOS_PRECHECK, FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_PRECHECK,
+            R.string.ai_declared_precheck, introducedCatalogVersion = 30),
         bool("home.recommend.live.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE, R.string.remove_home_recommend_live),
         bool("home.recommend.pgc.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC,
             R.string.remove_home_recommend_pgc, introducedCatalogVersion = 14),
@@ -219,6 +337,23 @@ internal object SettingsCatalog {
             R.string.dynamic_author_filter_rules,
             introducedCatalogVersion = 12
         ),
+        bool(
+            ID_DYNAMIC_SEMANTIC_FILTER,
+            FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED,
+            R.string.dynamic_semantic_filter,
+            introducedCatalogVersion = 31
+        ),
+        // 智能过滤：各面一个开关 + 一份勾选（v32）。勾选以预设 id 存储，未知 id 由宿主忽略。
+        semanticRules(ID_DYNAMIC_SEMANTIC_RULES, FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_RULES, SemanticSurface.DYNAMIC),
+        bool(ID_DANMAKU_SEMANTIC_FILTER, FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED,
+            R.string.danmaku_semantic_filter, introducedCatalogVersion = 32),
+        semanticRules(ID_DANMAKU_SEMANTIC_RULES, FeaturePreferences.DANMAKU_SEMANTIC_FILTER_RULES, SemanticSurface.DANMAKU),
+        bool(ID_COMMENT_SEMANTIC_FILTER, FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED,
+            R.string.comment_semantic_filter, introducedCatalogVersion = 32),
+        semanticRules(ID_COMMENT_SEMANTIC_RULES, FeaturePreferences.COMMENT_SEMANTIC_FILTER_RULES, SemanticSurface.COMMENT),
+        bool(ID_VIDEO_SEMANTIC_FILTER, FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED,
+            R.string.video_semantic_filter, introducedCatalogVersion = 32),
+        semanticRules(ID_VIDEO_SEMANTIC_RULES, FeaturePreferences.VIDEO_SEMANTIC_FILTER_RULES, SemanticSurface.VIDEO),
         bool(
             "dynamic.promotions.removed",
             FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS,
@@ -433,6 +568,19 @@ internal object SettingsCatalog {
         bool("story.tv.removed", FeaturePreferences.REMOVE_STORY_TV, R.string.remove_story_tv),
         bool("story.variety.removed", FeaturePreferences.REMOVE_STORY_VARIETY, R.string.remove_story_variety),
         bool("story.music.removed", FeaturePreferences.REMOVE_STORY_MUSIC, R.string.remove_story_music),
+        // v37：Story 竖屏流右侧互动图标，每个图标单独开关。
+        bool("story.action.like.hidden", FeaturePreferences.HIDE_STORY_ACTION_LIKE, R.string.hide_story_action_like,
+            introducedCatalogVersion = 37),
+        bool("story.action.comment.hidden", FeaturePreferences.HIDE_STORY_ACTION_COMMENT, R.string.hide_story_action_comment,
+            introducedCatalogVersion = 37),
+        bool("story.action.coin.hidden", FeaturePreferences.HIDE_STORY_ACTION_COIN, R.string.hide_story_action_coin,
+            introducedCatalogVersion = 37),
+        bool("story.action.favorite.hidden", FeaturePreferences.HIDE_STORY_ACTION_FAVORITE, R.string.hide_story_action_favorite,
+            introducedCatalogVersion = 37),
+        bool("story.action.share.hidden", FeaturePreferences.HIDE_STORY_ACTION_SHARE, R.string.hide_story_action_share,
+            introducedCatalogVersion = 37),
+        bool("story.action.danmaku_toggle.hidden", FeaturePreferences.HIDE_STORY_ACTION_DANMAKU_TOGGLE, R.string.hide_story_action_danmaku_toggle,
+            introducedCatalogVersion = 37),
 
         text("navigation.bottom_bar.hidden_rules", FeaturePreferences.BOTTOM_BAR_HIDDEN_RULES, R.string.custom_bottom_bar_hide),
         text(
@@ -440,6 +588,63 @@ internal object SettingsCatalog {
             FeaturePreferences.BOTTOM_BAR_HIDDEN_SELECTORS,
             R.string.custom_bottom_bar_hide,
             introducedCatalogVersion = 9
+        ),
+        bool(
+            "host.bottom_bar.liquid_glass.enabled",
+            FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,
+            R.string.host_bottom_bar_liquid_glass,
+            default = false,
+            introducedCatalogVersion = 39
+        ),
+        bool(
+            "host.video_cards.enabled",
+            FeaturePreferences.HOST_VIDEO_CARDS,
+            R.string.host_video_cards,
+            default = false,
+            introducedCatalogVersion = 42
+        ),
+        integer(
+            "host.video_cards.radius_dp",
+            FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP,
+            R.string.host_video_card_radius,
+            default = -1,
+            range = -1..40,
+            introducedCatalogVersion = 43
+        ),
+        bool(
+            "host.bottom_bar.compact.enabled",
+            FeaturePreferences.HOST_BOTTOM_BAR_COMPACT,
+            R.string.host_bottom_bar_compact,
+            default = false,
+            introducedCatalogVersion = 41
+        ),
+        bool(
+            "host.bottom_bar.icon_only.enabled",
+            FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY,
+            R.string.host_bottom_bar_icon_only,
+            default = false,
+            introducedCatalogVersion = 41
+        ),
+        bool(
+            "host.bottom_bar.touch_glow.enabled",
+            FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
+            R.string.host_bottom_bar_touch_glow,
+            default = false,
+            introducedCatalogVersion = 39
+        ),
+        bool(
+            "host.top_bar.liquid_glass.enabled",
+            FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS,
+            R.string.host_top_bar_liquid_glass,
+            default = false,
+            introducedCatalogVersion = 40
+        ),
+        bool(
+            "host.top_bar.touch_glow.enabled",
+            FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
+            R.string.host_top_bar_touch_glow,
+            default = false,
+            introducedCatalogVersion = 40
         ),
         integer(
             ID_RECOMMEND_VIDEO_MIN_DURATION,
@@ -577,6 +782,10 @@ internal object SettingsCatalog {
             introducedCatalogVersion = 11
         ),
         bool("splash.ads.purified", FeaturePreferences.PURIFY_SPLASH_ADS, R.string.purify_splash_ads),
+        bool("splash.brand.skipped", FeaturePreferences.BRAND_SPLASH_SKIP, R.string.brand_splash_skip,
+            introducedCatalogVersion = 38),
+        bool("splash.custom_selection.enabled", FeaturePreferences.BRAND_SPLASH_CUSTOM, R.string.brand_splash_custom,
+            introducedCatalogVersion = 38),
         bool(
             "splash.auto_night.enabled",
             FeaturePreferences.SPLASH_AUTO_NIGHT,
@@ -698,7 +907,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 150) { "Expected 150 catalog settings, found ${specs.size}" }
+        check(specs.size == 201) { "Expected 201 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

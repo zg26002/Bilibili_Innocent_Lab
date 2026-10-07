@@ -55,6 +55,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticActivationState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticConfigDelivery
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.configDelivery
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.isIdleUnderStandardPublisherBypass
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureInstallState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostFeature
@@ -175,7 +176,14 @@ class DiagnosticsActivity : SkinnedActivity(),
     ) { uri ->
         pickerOpen = false
         val snapshot = currentSnapshot
-        if (uri != null && snapshot != null) viewModel.export(applicationContext, uri, snapshot)
+        if (uri == null) return@registerForActivityResult
+        // 后台刷新在用户停留文件选择器期间失败时快照会被清空：静默丢弃会让用户
+        // 以为已导出。给一条明确提示，导出按钮此时本就已随失败态禁用。
+        if (snapshot == null) {
+            Toast.makeText(this, R.string.diagnostics_export_snapshot_stale, Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        viewModel.export(applicationContext, uri, snapshot)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1024,6 +1032,9 @@ class DiagnosticsActivity : SkinnedActivity(),
             }
             DiagnosticItemId.REMOTE_CONFIG -> {
                 val base = when {
+                    // 选中 NPatch 后标准发布器永远不会发布，不该再说“失败”或“等待服务后发布”。
+                    input.isIdleUnderStandardPublisherBypass() ->
+                        getString(R.string.diagnostics_remote_npatch_selected)
                     input.remotePublishPending &&
                         input.remotePublishState != DiagnosticRemotePublishState.FAILED ->
                         getString(R.string.diagnostics_remote_publishing)
@@ -1271,6 +1282,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             "home_component_filter" -> R.string.custom_home_component_hide
             "bottom_bar" -> R.string.custom_bottom_bar_hide
             "story_purify" -> R.string.story_purify_settings
+            "story_action_icons" -> R.string.story_action_icons_title
             "dynamic_tabs_purify" -> R.string.dynamic_page_settings
             "dynamic_purify" -> R.string.diagnostics_host_feature_dynamic_feed
             "search_purify" -> R.string.diagnostics_host_feature_search

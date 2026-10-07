@@ -160,6 +160,7 @@ jobs:
       # 失败时直接看出是构建、行为测试、源码契约、Lint 还是混淆出了问题。
       # 构建成功后其余步骤都会运行（互不短路），一次拿到全部结果。
       # 行为测试 / 源码契约的划分见 app/build.gradle.kts 的 innocentLab.testLayer。
+      # 同一 job 保持相同 JDK/JVM 参数，复用守护进程；Lint 仍为完整门禁。
       - name: Build debug APK
         id: build
         working-directory: Bilibili_Innocent_Lab
@@ -170,7 +171,7 @@ jobs:
             "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             assembleDebug \
-            --console=plain --no-daemon
+            --console=plain --daemon
 
       - name: Unit tests (behavior)
         id: unit_tests
@@ -184,7 +185,7 @@ jobs:
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             -PinnocentLab.testLayer=unit \
             testDebugUnitTest \
-            --console=plain --no-daemon
+            --console=plain --daemon
 
       - name: Source contract tests
         id: contract_tests
@@ -198,7 +199,7 @@ jobs:
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             -PinnocentLab.testLayer=contract \
             testDebugUnitTest \
-            --console=plain --no-daemon
+            --console=plain --daemon
 
       - name: Lint
         id: lint
@@ -211,7 +212,7 @@ jobs:
             "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             lintDebug \
-            --console=plain --no-daemon
+            --console=plain --daemon
 
       - name: Validate Release minification
         id: minify
@@ -224,7 +225,7 @@ jobs:
             "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             minifyReleaseWithR8 \
-            --console=plain --no-daemon
+            --console=plain --daemon
 
       - name: Upload test and lint reports
         if: ${{ failure() }}
@@ -552,6 +553,32 @@ jobs:
             echo "- Release: $release_url"
             echo "- Assets: APK, BUILD_INFO.txt, SHA256SUMS.txt"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # README 的「稳定版」徽章读 badges 分支上的 stable.json（shields endpoint）。直接用 shields 的
+      # github/v/release 时，它的 GitHub 令牌池被限流就返回 invalid，GitHub 的图片代理还会把这张缓存下来。
+      # 独立分支、每次用孤立提交覆盖：不触发推 main 才跑的 Alpha，也不给 Release 与 LSPosed 同步添附件。
+      # Release 已经发布并校验过，这一步失败只影响徽章，不回滚发布。
+      - name: Update stable version badge
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          badge_dir="$RUNNER_TEMP/badges"
+          mkdir -p "$badge_dir"
+          cd "$badge_dir"
+          git init -q
+          jq -n --arg version "$RELEASE_TAG" \
+            '{schemaVersion: 1, label: "稳定版", message: $version, color: "FB7299"}' > stable.json
+          git add stable.json
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "Stable badge: $RELEASE_TAG"
+          git push --force -q \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:refs/heads/badges
 
       - name: Remove temporary signing keystore
         if: ${{ always() }}

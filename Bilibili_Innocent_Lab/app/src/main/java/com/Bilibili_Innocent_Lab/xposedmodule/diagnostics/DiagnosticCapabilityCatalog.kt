@@ -20,8 +20,10 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 14
+    const val VERSION = 18
     val definitions = listOf(
+        DiagnosticCapabilityDefinition("host_video_cards", "host_video_cards", R.string.host_video_cards,
+            setOf("host.video_cards.enabled", "host.video_cards.radius_dp"), introducedCatalogVersion = 18),
         DiagnosticCapabilityDefinition("search_home_recommend_hidden", "search_home_recommend_hidden", R.string.hide_search_home_recommend, setOf("search.home_recommend.hidden"), introducedCatalogVersion = 4),
         DiagnosticCapabilityDefinition("player_interactive_legacy_follow", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_follow, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearAttention"),
         DiagnosticCapabilityDefinition("player_interactive_legacy_commands", "player_interactive_overlay", R.string.diag_cap_player_interactive_legacy_commands, setOf("player.interactive_overlays.hidden"), "legacy/guide/clearCommandDms"),
@@ -48,13 +50,18 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("home_banner_feed", "home_banner", R.string.diag_cap_home_banner_feed, setOf("ads.home_banner.hidden")),
         DiagnosticCapabilityDefinition("merchandise", "merchandise", R.string.merch_ad_enable, setOf("ads.merchandise.hidden")),
         DiagnosticCapabilityDefinition("home_top_bar_game_menu_hidden", "home_top_bar_purify", R.string.hide_home_game_menu, setOf("home.top_bar.game_menu.hidden")),
-        DiagnosticCapabilityDefinition("home_top_bar_search_word_hidden", "home_top_bar_purify", R.string.hide_home_search_default_word, setOf("home.top_bar.search_word.hidden")),
+        DiagnosticCapabilityDefinition("home_top_bar_search_word_hidden", "home_top_bar_purify", R.string.hide_home_search_default_word, setOf(
+            "home.top_bar.search_word.hidden",
+            "host.top_bar.liquid_glass.enabled",
+            "host.top_bar.touch_glow.enabled"
+        )),
         DiagnosticCapabilityDefinition("home_vertical_detail", "home_vertical_detail", R.string.home_vertical_open_detail, setOf("home.vertical.open_detail")),
         DiagnosticCapabilityDefinition("home_recommend_ads_removed", "home_recommend_purify", R.string.remove_home_recommend_ads, setOf("home.recommend.ads.removed")),
         DiagnosticCapabilityDefinition("home_recommend_cm_v2_removed", "home_recommend_purify", R.string.remove_home_recommend_cm_v2, setOf("home.recommend.cm_v2.removed")),
         DiagnosticCapabilityDefinition("home_recommend_pictures_removed", "home_recommend_purify", R.string.remove_home_recommend_pictures, setOf("home.recommend.pictures.removed")),
         DiagnosticCapabilityDefinition("home_recommend_game_promotions_removed", "home_recommend_purify", R.string.remove_home_recommend_game_promotions, setOf("home.recommend.game_promotions.removed")),
         DiagnosticCapabilityDefinition("home_recommend_title_filter_enabled", "home_recommend_purify", R.string.home_recommend_title_filter, setOf("home.recommend.title_filter.enabled", "home.recommend.title_filter.keywords")),
+        DiagnosticCapabilityDefinition("home_recommend_semantic_filter_enabled", "home_recommend_purify", R.string.video_semantic_filter, setOf("video.semantic_filter.enabled", "video.semantic_filter.rules", "video.semantic_filter.source", "video.semantic_filter.custom_rules"), introducedCatalogVersion = 16),
         DiagnosticCapabilityDefinition("home_recommend_live_removed", "home_recommend_purify", R.string.remove_home_recommend_live, setOf("home.recommend.live.removed")),
         DiagnosticCapabilityDefinition("home_recommend_pgc_removed", "home_recommend_purify", R.string.remove_home_recommend_pgc, setOf("home.recommend.pgc.removed"), introducedCatalogVersion = 2),
         DiagnosticCapabilityDefinition("home_recommend_special_cards_removed", "home_recommend_purify", R.string.remove_home_recommend_special_cards, setOf("home.recommend.special_cards.removed"), introducedCatalogVersion = 2),
@@ -75,6 +82,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("dynamic_video_tab_preferred", "dynamic_tabs_purify", R.string.prefer_dynamic_video_tab, setOf("dynamic.video_tab.preferred")),
         DiagnosticCapabilityDefinition("dynamic_keyword_filter_enabled", "dynamic_purify", R.string.dynamic_keyword_filter, setOf("dynamic.keyword_filter.enabled", "dynamic.keyword_filter.keywords")),
         DiagnosticCapabilityDefinition("dynamic_author_filter_enabled", "dynamic_purify", R.string.dynamic_author_filter, setOf("dynamic.author_filter.enabled", "dynamic.author_filter.rules")),
+        DiagnosticCapabilityDefinition("dynamic_semantic_filter_enabled", "dynamic_purify", R.string.dynamic_semantic_filter, setOf("dynamic.semantic_filter.enabled", "compat.semantic_jev.endpoint", "compat.semantic_jev.sensitivity", "compat.semantic_jev.wait_first_screen", "dynamic.semantic_filter.rules", "compat.semantic_jev.cache_days", "compat.semantic_jev.provider", "compat.semantic_jev.model", "compat.semantic_jev.timeout_ms", "compat.semantic_jev.guidance", "compat.semantic_source.2.provider", "compat.semantic_source.2.endpoint", "compat.semantic_source.2.model", "compat.semantic_source.3.provider", "compat.semantic_source.3.endpoint", "compat.semantic_source.3.model", "compat.semantic_source.4.provider", "compat.semantic_source.4.endpoint", "compat.semantic_source.4.model", "dynamic.semantic_filter.source", "dynamic.semantic_filter.custom_rules"), introducedCatalogVersion = 15),
         DiagnosticCapabilityDefinition("dynamic_promotions_removed", "dynamic_purify", R.string.remove_dynamic_promotions, setOf("dynamic.promotions.removed")),
         DiagnosticCapabilityDefinition("dynamic_charge_only_removed", "dynamic_purify", R.string.remove_dynamic_charge_only, setOf("dynamic.charge_only.removed")),
         DiagnosticCapabilityDefinition("dynamic_frequent_visits_hidden", "dynamic_purify", R.string.hide_dynamic_frequent_visits, setOf("dynamic.frequent_visits.hidden"), introducedCatalogVersion = 3),
@@ -89,6 +97,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("player_status_bar", "player_status_bar", R.string.transparent_player_status_bar, setOf("player.status_bar.transparent")),
         DiagnosticCapabilityDefinition("player_danmaku_weight_filter_enabled", "danmaku_purify", R.string.danmaku_weight_filter, setOf("player.danmaku.weight_filter.enabled", "player.danmaku.weight_filter.minimum")),
         DiagnosticCapabilityDefinition("player_danmaku_vip_colorful_removed", "danmaku_purify", R.string.remove_vip_colorful_danmaku, setOf("player.danmaku.vip_colorful.removed")),
+        DiagnosticCapabilityDefinition("player_danmaku_semantic_filter_enabled", "danmaku_purify", R.string.danmaku_semantic_filter, setOf("player.danmaku.semantic_filter.enabled", "player.danmaku.semantic_filter.rules", "player.danmaku.semantic_filter.source", "player.danmaku.semantic_filter.custom_rules"), introducedCatalogVersion = 16),
         DiagnosticCapabilityDefinition("live_room_switch_blocked", "live_room_widgets", R.string.block_live_room_switch, setOf("live.room_switch.blocked")),
         DiagnosticCapabilityDefinition("live_double_tap_pause", "live_room_widgets", R.string.live_room_double_tap_pause, setOf("live.double_tap.pause")),
         DiagnosticCapabilityDefinition("video_related_commercial_removed", "video_relate_filter", R.string.remove_relate_commercial, setOf("video.related.commercial.removed")),
@@ -111,7 +120,20 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("story_tv_removed", "story_purify", R.string.remove_story_tv, setOf("story.tv.removed")),
         DiagnosticCapabilityDefinition("story_variety_removed", "story_purify", R.string.remove_story_variety, setOf("story.variety.removed")),
         DiagnosticCapabilityDefinition("story_music_removed", "story_purify", R.string.remove_story_music, setOf("story.music.removed")),
-        DiagnosticCapabilityDefinition("bottom_bar", "bottom_bar", R.string.custom_bottom_bar_hide, setOf("navigation.bottom_bar.hidden_rules", "navigation.bottom_bar.hidden_selectors")),
+        DiagnosticCapabilityDefinition("story_action_like_hidden", "story_action_icons", R.string.hide_story_action_like, setOf("story.action.like.hidden"), introducedCatalogVersion = 17),
+        DiagnosticCapabilityDefinition("story_action_comment_hidden", "story_action_icons", R.string.hide_story_action_comment, setOf("story.action.comment.hidden"), introducedCatalogVersion = 17),
+        DiagnosticCapabilityDefinition("story_action_coin_hidden", "story_action_icons", R.string.hide_story_action_coin, setOf("story.action.coin.hidden"), introducedCatalogVersion = 17),
+        DiagnosticCapabilityDefinition("story_action_favorite_hidden", "story_action_icons", R.string.hide_story_action_favorite, setOf("story.action.favorite.hidden"), introducedCatalogVersion = 17),
+        DiagnosticCapabilityDefinition("story_action_share_hidden", "story_action_icons", R.string.hide_story_action_share, setOf("story.action.share.hidden"), introducedCatalogVersion = 17),
+        DiagnosticCapabilityDefinition("story_action_danmaku_toggle_hidden", "story_action_icons", R.string.hide_story_action_danmaku_toggle, setOf("story.action.danmaku_toggle.hidden"), introducedCatalogVersion = 17),
+        DiagnosticCapabilityDefinition("bottom_bar", "bottom_bar", R.string.custom_bottom_bar_hide, setOf(
+            "navigation.bottom_bar.hidden_rules",
+            "navigation.bottom_bar.hidden_selectors",
+            "host.bottom_bar.liquid_glass.enabled",
+            "host.bottom_bar.compact.enabled",
+            "host.bottom_bar.icon_only.enabled",
+            "host.bottom_bar.touch_glow.enabled"
+        )),
         DiagnosticCapabilityDefinition("player_default_quality", "player_default_quality", R.string.player_default_quality, setOf("player.default_quality.qn")),
         DiagnosticCapabilityDefinition("teenagers_mode_prompt", "teenagers_mode_prompt", R.string.block_teenagers_mode_prompt, setOf("prompt.teenagers_mode.blocked")),
         DiagnosticCapabilityDefinition("player_capability_background", "player_capabilities", R.string.player_unlock_background, setOf("player.capability.background")),
@@ -134,8 +156,13 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("comments_minimum_level_filter_enabled", "comment_filter", R.string.comment_min_level_filter, setOf("comments.minimum_level_filter.enabled", "comments.minimum_level_filter.level")),
         DiagnosticCapabilityDefinition("comments_at_only_removed", "comment_filter", R.string.remove_at_only_comments, setOf("comments.at_only.removed")),
         DiagnosticCapabilityDefinition("comments_user_filter_enabled", "comment_filter", R.string.comment_user_filter, setOf("comments.user_filter.enabled", "comments.user_filter.rules")),
+        DiagnosticCapabilityDefinition("comments_semantic_filter_enabled", "comment_filter", R.string.comment_semantic_filter, setOf("comments.semantic_filter.enabled", "comments.semantic_filter.rules", "comments.semantic_filter.source", "comments.semantic_filter.custom_rules"), introducedCatalogVersion = 16),
         DiagnosticCapabilityDefinition("splash_ad_purify", "splash_ad_purify", R.string.purify_splash_ads, setOf("splash.ads.purified")),
         DiagnosticCapabilityDefinition("splash_auto_night", "splash_auto_night", R.string.splash_auto_night, setOf("splash.auto_night.enabled")),
+        DiagnosticCapabilityDefinition("brand_splash_skip", "brand_splash_skip", R.string.brand_splash_skip,
+            setOf("splash.brand.skipped"), introducedCatalogVersion = 18),
+        DiagnosticCapabilityDefinition("brand_splash_custom", "brand_splash_custom", R.string.brand_splash_custom,
+            setOf("splash.custom_selection.enabled"), introducedCatalogVersion = 18),
         DiagnosticCapabilityDefinition("share_content_purified", "share_purify", R.string.purify_share_content, setOf("share.content.purified")),
         DiagnosticCapabilityDefinition("share_mini_program_direct_link", "share_purify", R.string.share_mini_program_direct_link, setOf("share.mini_program.direct_link")),
         DiagnosticCapabilityDefinition("external_browser", "external_browser", R.string.force_external_browser, setOf("links.external_browser.enabled")),
@@ -176,6 +203,7 @@ internal object DiagnosticCapabilityCatalog {
         // 详情页没有 tid，同一需求退到作者与标签两档。
         DiagnosticCapabilityDefinition("video_related_author_block", "video_relate_filter", R.string.video_relate_blocked_authors, setOf("video.related.blocked_authors"), introducedCatalogVersion = 8),
         DiagnosticCapabilityDefinition("video_related_tag_block", "video_relate_filter", R.string.video_relate_blocked_tags, setOf("video.related.blocked_tags"), introducedCatalogVersion = 8),
+        DiagnosticCapabilityDefinition("video_related_semantic_filter_enabled", "video_relate_filter", R.string.video_semantic_filter, setOf("video.semantic_filter.enabled", "video.semantic_filter.rules", "video.semantic_filter.source", "video.semantic_filter.custom_rules"), introducedCatalogVersion = 16),
         DiagnosticCapabilityDefinition("player_end_page_recommend", "player_end_page_recommend", R.string.hide_player_end_page_recommend, setOf("player.end_page_recommend.hidden"), introducedCatalogVersion = 11),
         DiagnosticCapabilityDefinition("player_popup_promotion", "player_popup_promotion", R.string.hide_player_popup_promotion, setOf("player.popup_promotion.hidden"), introducedCatalogVersion = 10),
         // AI 生成声明：详情页拦截补位与强力模式挂在独立安装器下；首页那一档挂在首页推荐过滤下，
@@ -197,7 +225,13 @@ internal object DiagnosticCapabilityCatalog {
         // 只决定模块 App 要不要把反馈面板记下的点选自动并入名单；宿主收下这个键但从不读，
         // 真正生效的是并入之后的 home.recommend.blocked_tids / blocked_authors 两份名单，
         // 它们各自已经有能力条目，所以这里没有独立的宿主能力可诊断。
-        "home.recommend.feedback_auto_confirm" to "MODULE_UI"
+        "home.recommend.feedback_auto_confirm" to "MODULE_UI",
+        // 只是强力模式的前置授权：宿主侧合成进 ai_declared_author_block 的生效值，
+        // 本身没有独立的宿主能力；令牌状态只以 ai_declared_access_key_status 状态码出现在本地诊断里。
+        "communication.bili_access_key.authorized" to "HOST_GATE",
+        // 强力模式 · 获取 access_key（推荐预检）：结果体现在 ai_declared_video_block 的运行证据与
+        // ai_declared_video_status 的 partial 原因里，没有独立的宿主能力单位。
+        "video.ai_declared.precheck" to "HOST_GATE"
     )
     val byId = definitions.associateBy { it.id }
     val byLocatorKey = definitions.filter { it.locatorKey != null }.associateBy { it.locatorKey!! }

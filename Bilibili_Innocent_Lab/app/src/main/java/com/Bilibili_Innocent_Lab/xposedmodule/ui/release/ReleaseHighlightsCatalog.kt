@@ -1,10 +1,19 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.release
 
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 
 internal enum class HighlightKind { NEW, IMPROVED, FIXED }
-internal data class HighlightDestination(val settingId: String, val homeFilterOption: Boolean = false)
+/**
+ * [alsoCovers]：同一项功能附带的其它设置（例如 2–4 号来源的类型/地址/模型、四个过滤面各自的判定来源），
+ * 显式逐个列出算作"已审阅"，不必每个都占一条亮点（总数有 64 条上限）。只用于覆盖审阅，不参与跳转。
+ */
+internal data class HighlightDestination(
+    val settingId: String,
+    val homeFilterOption: Boolean = false,
+    val alsoCovers: Set<String> = emptySet()
+)
 internal data class ReleaseHighlight(
     val id: String, val kind: HighlightKind, val descriptionRes: Int,
     val destination: HighlightDestination? = null, val standaloneTitleRes: Int? = null
@@ -24,8 +33,11 @@ internal object ReleaseHighlightsCatalog {
     // 18 → 19（1.1.8）：新增批次 2，见下方批次 2 的注释。
     // 19 → 20（1.1.9）：复核结论是批次内容不变。本轮是浅色模式适配、动画跳变修复与性能优化，
     // 没有引入新设置，不需要新增条目。
+    // 20 → 21（1.2.0）：新增的设置（智能过滤的接口类型 / 模型 / 超时 / 多来源 / 各面判定来源 / 自定义类型 /
+    // 判定口径 / 缓存保留天数）都已有公告条目与导航目标；其余改动（NPatch 下设置同步与重启入口、
+    // 9.14.0 适配、竖屏进入详情页的来源放行、新通道过滤）没有引入新设置，不需要新增条目。
     // 注意以后改版本号都要改一下这个地方的版本号，下面这个REVIEWED，不然过不了ci
-    const val REVIEWED_VERSION_CODE = 20
+    const val REVIEWED_VERSION_CODE = 21
     const val SETTINGS_BASELINE_VERSION = 13
     val batches = listOf(ReleaseHighlightsBatch(1, listOf(
         ReleaseHighlight("player-end-page-recommend", HighlightKind.NEW,
@@ -133,7 +145,7 @@ internal object ReleaseHighlightsCatalog {
             R.string.highlights_recommend_play_count,
             HighlightDestination(SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_PLAY_COUNT))
     )),
-    // 批次 3（下一版）：屏蔽 AI 生成声明视频与它的强力模式。1.1.9 用户已看过批次 2，
+    // 批次 3（下一版）：屏蔽 AI 生成声明视频、它的强力模式，以及强力模式所需的 access_key 授权。1.1.9 用户已看过批次 2，
     // 追加进去永远不会再弹，所以另开批次；REVIEWED_VERSION_CODE 随下一次改版本号复核。
     ReleaseHighlightsBatch(3, listOf(
         ReleaseHighlight("ai-declared-videos", HighlightKind.NEW,
@@ -141,7 +153,105 @@ internal object ReleaseHighlightsCatalog {
             HighlightDestination(SettingsCatalog.ID_AI_DECLARED_VIDEOS_BLOCKED)),
         ReleaseHighlight("ai-declared-videos-strong-mode", HighlightKind.NEW,
             R.string.highlights_ai_declared_videos_strong_mode,
-            HighlightDestination(SettingsCatalog.ID_AI_DECLARED_VIDEOS_STRONG_MODE))
+            HighlightDestination(SettingsCatalog.ID_AI_DECLARED_VIDEOS_STRONG_MODE)),
+        ReleaseHighlight("ai-declared-videos-precheck", HighlightKind.NEW,
+            R.string.highlights_ai_declared_precheck,
+            HighlightDestination(SettingsCatalog.ID_AI_DECLARED_VIDEOS_PRECHECK)),
+        ReleaseHighlight("bili-access-key", HighlightKind.NEW,
+            R.string.highlights_bili_access_key,
+            HighlightDestination(SettingsCatalog.ID_BILI_ACCESS_KEY_AUTHORIZED)),
+        // 智能过滤动态：开关在净化 → 动态；JEV 三项配置同住兼容区的一行入口，共用一段说明。
+        ReleaseHighlight("dynamic-semantic-filter", HighlightKind.NEW,
+            R.string.highlights_dynamic_semantic_filter,
+            HighlightDestination(SettingsCatalog.ID_DYNAMIC_SEMANTIC_FILTER)),
+        ReleaseHighlight("semantic-jev-endpoint", HighlightKind.NEW,
+            R.string.highlights_semantic_jev,
+            HighlightDestination(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT,
+                alsoCovers = setOf(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY,
+                    SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN))),
+        // v32：弹幕 / 评论 / 推荐视频三个智能过滤开关，外加四个面的屏蔽类型勾选。
+        ReleaseHighlight("danmaku-semantic-filter", HighlightKind.NEW,
+            R.string.highlights_semantic_more_surfaces,
+            HighlightDestination(SettingsCatalog.ID_DANMAKU_SEMANTIC_FILTER)),
+        ReleaseHighlight("comment-semantic-filter", HighlightKind.NEW,
+            R.string.highlights_semantic_more_surfaces,
+            HighlightDestination(SettingsCatalog.ID_COMMENT_SEMANTIC_FILTER)),
+        ReleaseHighlight("video-semantic-filter", HighlightKind.NEW,
+            R.string.highlights_semantic_more_surfaces,
+            HighlightDestination(SettingsCatalog.ID_VIDEO_SEMANTIC_FILTER)),
+        ReleaseHighlight("dynamic-semantic-rules", HighlightKind.NEW,
+            R.string.highlights_semantic_rules,
+            HighlightDestination(SettingsCatalog.ID_DYNAMIC_SEMANTIC_RULES)),
+        ReleaseHighlight("danmaku-semantic-rules", HighlightKind.NEW,
+            R.string.highlights_semantic_rules,
+            HighlightDestination(SettingsCatalog.ID_DANMAKU_SEMANTIC_RULES)),
+        ReleaseHighlight("comment-semantic-rules", HighlightKind.NEW,
+            R.string.highlights_semantic_rules,
+            HighlightDestination(SettingsCatalog.ID_COMMENT_SEMANTIC_RULES)),
+        ReleaseHighlight("video-semantic-rules", HighlightKind.NEW,
+            R.string.highlights_semantic_rules,
+            HighlightDestination(SettingsCatalog.ID_VIDEO_SEMANTIC_RULES)),
+        ReleaseHighlight("semantic-jev-cache-days", HighlightKind.NEW,
+            R.string.highlights_semantic_cache,
+            HighlightDestination(SettingsCatalog.ID_SEMANTIC_JEV_CACHE_DAYS)),
+        ReleaseHighlight("semantic-provider", HighlightKind.NEW,
+            R.string.highlights_semantic_provider,
+            HighlightDestination(SettingsCatalog.ID_SEMANTIC_JEV_PROVIDER)),
+        ReleaseHighlight("semantic-model", HighlightKind.NEW,
+            R.string.highlights_semantic_provider,
+            HighlightDestination(SettingsCatalog.ID_SEMANTIC_JEV_MODEL)),
+        ReleaseHighlight("semantic-timeout", HighlightKind.NEW,
+            R.string.highlights_semantic_timeout,
+            HighlightDestination(SettingsCatalog.ID_SEMANTIC_JEV_TIMEOUT_MS)),
+        ReleaseHighlight("semantic-multi-source", HighlightKind.NEW,
+            R.string.highlights_semantic_multi_source,
+            HighlightDestination(SettingsCatalog.ID_SEMANTIC_SOURCES, alsoCovers = (2..4).flatMap { index ->
+                listOf("provider", "endpoint", "model").map { "compat.semantic_source.$index.$it" }
+            }.toSet())),
+        ReleaseHighlight("semantic-comment-route", HighlightKind.NEW,
+            R.string.highlights_semantic_multi_source,
+            HighlightDestination(SettingsCatalog.ID_COMMENT_SEMANTIC_SOURCE,
+                alsoCovers = SemanticSurface.entries.map(SettingsCatalog::semanticRouteId).toSet())),
+        ReleaseHighlight("semantic-guidance", HighlightKind.NEW,
+            R.string.highlights_semantic_custom,
+            HighlightDestination(SettingsCatalog.ID_SEMANTIC_JEV_GUIDANCE)),
+        ReleaseHighlight("semantic-comment-custom", HighlightKind.NEW,
+            R.string.highlights_semantic_custom,
+            HighlightDestination(SettingsCatalog.ID_COMMENT_SEMANTIC_CUSTOM_RULES,
+                alsoCovers = SemanticSurface.entries.map(SettingsCatalog::semanticCustomRulesId).toSet()))
+    )),
+    // 批次 4（下一版）：Story 竖屏流右侧互动图标逐个隐藏。批次 3 已随 v1.2.0 发布，追加进去永远不会再弹，
+    // 所以另开批次。六个图标共用一条：点赞为导航目标，其余五个按同一功能的配套项列入 alsoCovers。
+    ReleaseHighlightsBatch(4, listOf(
+        ReleaseHighlight("brand-splash-skip", HighlightKind.NEW,
+            R.string.brand_splash_skip_tip, HighlightDestination("splash.brand.skipped")),
+        ReleaseHighlight("brand-splash-custom", HighlightKind.NEW,
+            R.string.brand_splash_custom_tip, HighlightDestination("splash.custom_selection.enabled")),
+        ReleaseHighlight("host-video-cards", HighlightKind.NEW,
+            R.string.host_video_cards_tip,
+            HighlightDestination("host.video_cards.enabled", alsoCovers = setOf("host.video_cards.radius_dp"))),
+        ReleaseHighlight("story-action-icons", HighlightKind.NEW,
+            R.string.highlights_story_action_icons,
+            HighlightDestination("story.action.like.hidden",
+                alsoCovers = listOf("comment", "coin", "favorite", "share", "danmaku_toggle")
+                    .map { "story.action.$it.hidden" }.toSet())),
+        ReleaseHighlight("host-bottom-bar-fx", HighlightKind.NEW,
+            R.string.host_bottom_bar_liquid_glass_tip,
+            HighlightDestination("host.bottom_bar.liquid_glass.enabled",
+                alsoCovers = setOf("host.bottom_bar.touch_glow.enabled",
+                    "host.bottom_bar.compact.enabled", "host.bottom_bar.icon_only.enabled"))),
+        ReleaseHighlight("host-top-bar-fx", HighlightKind.NEW,
+            R.string.host_top_bar_liquid_glass_tip,
+            HighlightDestination("host.top_bar.liquid_glass.enabled",
+                alsoCovers = setOf("host.top_bar.touch_glow.enabled")))
+    )), ReleaseHighlightsBatch(6, listOf(
+        ReleaseHighlight("reply-topology-keyword-export", HighlightKind.IMPROVED,
+            R.string.highlights_reply_topology_keyword_export,
+            HighlightDestination("comments.reply_topology.enabled"))
+    )), ReleaseHighlightsBatch(7, listOf(
+        ReleaseHighlight("reply-topology-tree-explorer", HighlightKind.IMPROVED,
+            R.string.highlights_reply_topology_tree_explorer,
+            HighlightDestination("comments.reply_topology.enabled"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

@@ -40,6 +40,7 @@ internal class SettingsHomePresenter(
     private val originalContent: ViewGroup,
     private val purification: View?,
     private val enhancement: View?,
+    private val beautification: View?,
     private val activation: View?,
     private val floatingToolbar: View?,
     private val savedState: Bundle?,
@@ -60,9 +61,12 @@ internal class SettingsHomePresenter(
     // pager 的直接容器：只装会从悬浮栏下穿过的内容与滚动边缘溶解层，两栏是它的兄弟。
     private val backdropTarget = GlowBackdropTarget(activity)
     private var floatingChrome: GlowFloatingChrome? = null
+    private var textChain: SettingsPageTextChain? = null
+    private val pageCount = 5
+    private val headings = ArrayList<View>(pageCount)
     private var navigation: ModernNavigationBar? = null
-    private val contents = List(4) { LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL } }
-    private val scrolls = List(4) { SettingsHomeScrollView(activity, ::userNavigated, navigationTouched).apply {
+    private val contents = List(pageCount) { LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL } }
+    private val scrolls = List(pageCount) { SettingsHomeScrollView(activity, ::userNavigated, navigationTouched).apply {
         isFillViewport = true
         isVerticalScrollBarEnabled = false
         clipToPadding = false
@@ -73,6 +77,9 @@ internal class SettingsHomePresenter(
     private val peerDisposers = mutableListOf<() -> Unit>()
     private var afterEdit: ((Boolean) -> Unit)? = null
     private var disposed = false
+
+    /** 弹窗队列派发前要先问：disposed 后 edit 会静默丢弃且不回调，队列会永久卡死。 */
+    internal val isDisposed: Boolean get() = disposed
     private var revealingPage = false
     private var userNavigationGeneration = 0L
     private var previousPage = 0
@@ -102,6 +109,7 @@ internal class SettingsHomePresenter(
             navigation?.setPageProgress(pager.pagePosition, notifyPositionChanged = false)
             skinPositionChanged()
             floatingChrome?.onContentMoved()
+            textChain?.onPositionChanged()
         }
         fun collect(view: View) {
             if (view is MaterialSwitch && view.isVisible) {
@@ -119,19 +127,19 @@ internal class SettingsHomePresenter(
         val originalCards: List<View> = List(originalContent.childCount) { originalContent.child(it) }
         originalContent.removeAllViews()
         originalCards.forEach { card ->
-            val index = when (card) { purification -> 1; enhancement -> 2; else -> 3 }
+            val index = when (card) { purification -> 1; enhancement -> 2; beautification -> 3; else -> 4 }
             contents[index].addView(card)
         }
         if (activation != null) {
             activation.removeSelf()
-            contents[3].addView(activation, 0)
+            contents[4].addView(activation, 0)
         }
         shell.removeView(originalScroll)
 
         val titleIds = intArrayOf(R.string.settings_home_favorites, R.string.settings_home_purify,
-            R.string.settings_home_enhance, R.string.settings_home_module)
+            R.string.settings_home_enhance, R.string.settings_home_beautify, R.string.settings_home_module)
         val descriptionIds = intArrayOf(R.string.settings_home_favorites_hint, R.string.settings_home_purify_hint,
-            R.string.settings_home_enhance_hint, R.string.settings_home_module_hint)
+            R.string.settings_home_enhance_hint, R.string.settings_home_beautify_hint, R.string.settings_home_module_hint)
         val manage = TextView(activity).apply {
             text = activity.getString(R.string.settings_favorites_manage)
             textSize = 14f
@@ -170,6 +178,7 @@ internal class SettingsHomePresenter(
                 })
             }
             content.addView(heading, 0)
+            headings += heading
             scrolls[index].addView(content, ViewGroup.LayoutParams(-1, -2))
             pager.addView(scrolls[index], FrameLayout.LayoutParams(-1, -1))
             stretches += installStretch(scrolls[index]) { pager.selectedPage == index && pager.isSettled }
@@ -192,7 +201,8 @@ internal class SettingsHomePresenter(
         shell.addView(pageLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         // 底栏与顶部胶囊都是 pager 的兄弟，皮肤层可以安全地抓 pager 做透镜采样。
         skinContentSource(pager)
-        val icons = intArrayOf(R.drawable.ic_favorites, R.drawable.ic_purify, R.drawable.ic_enhancement, R.drawable.ic_science)
+        val icons = intArrayOf(R.drawable.ic_favorites, R.drawable.ic_purify, R.drawable.ic_enhancement,
+            R.drawable.ic_palette, R.drawable.ic_science)
         val dock = ModernNavigationBar(
             context = activity,
             titles = titleIds.map(activity::getString),
@@ -264,9 +274,11 @@ internal class SettingsHomePresenter(
                 if (view is ViewGroup) for (i in 0 until view.childCount) collectIcons(view.child(i))
             }
             collectIcons(toolbar)
+            // 胶囊本体上没有文字，图标都在三枚圆按钮里：补偿只加在圆按钮上，本体与底栏一样保持清透。
+            // 加厚本体时亮背景下补偿封顶，整条胶囊被洗成一层灰（2026-09-27 真机：顶栏 luma 0.635 → boost 1.0）。
             chrome.attach(
                 header, GlowScrollEdge.TOP, activity.getColor(R.color.colorTextGray),
-                companions = icons, onForeground = toolbarForeground(icons)
+                companions = icons, thickenHost = false, onForeground = toolbarForeground(icons)
             )
         }
         pager.onPageSelected = { index ->
@@ -275,8 +287,9 @@ internal class SettingsHomePresenter(
             dock.setSelectedPage(index)
         }
         pager.onMotionStarted = { stretches.forEach(finishStretch) }
+        textChain = SettingsPageTextChain(pager, headings)
         pager.onUserInteraction = { if (!revealingPage) userNavigated() }
-        val restored = savedState?.getInt("settings_home_page", 0)?.coerceIn(0, 3) ?: 0
+        val restored = savedState?.getInt("settings_home_page", 0)?.coerceIn(0, contents.lastIndex) ?: 0
         revealingPage = true
         try { pager.selectPage(restored, false) } finally { revealingPage = false }
         previousPage = restored
@@ -483,6 +496,8 @@ internal class SettingsHomePresenter(
         disposed = true
         floatingChrome?.dispose()
         floatingChrome = null
+        textChain?.dispose()
+        textChain = null
         peerDisposers.forEach { it() }; peerDisposers.clear()
         stretches.forEach(finishStretch); stretches.clear()
         pager.onPageSelected = {}

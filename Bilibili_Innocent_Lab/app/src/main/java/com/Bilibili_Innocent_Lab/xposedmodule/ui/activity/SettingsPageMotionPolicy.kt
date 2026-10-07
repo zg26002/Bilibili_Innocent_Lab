@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.pow
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
@@ -43,7 +45,7 @@ internal object SettingsPageUserNavigation {
 
 /** Page coordinates increase in reading order; pixels are converted only at the View boundary. */
 internal object SettingsPageMotionPolicy {
-    const val MAX_PAGES = 4
+    const val MAX_PAGES = 5
     const val EDGE_LIMIT = .18f
     private const val PAGE_THRESHOLD = .22f
     private const val FLING_THRESHOLD = .5f
@@ -119,10 +121,55 @@ internal object SettingsPageMotionPolicy {
     fun duration(start: Float, target: Float): Long =
         if (!start.isFinite() || !target.isFinite()) 180L
         else (340f * sqrt(abs(target - start).coerceIn(0f, 2f))).roundToLong().coerceIn(180L, 420L)
+
+    /**
+     * 点击底栏/键盘/搜索跳转这类"导航"切页的时长：跨得越远越长，但增长放缓（d^0.45）——
+     * 1 页约 320ms、2 页约 440ms、3 页约 520ms。远跳的额外距离主要由更陡的起步吸收，而不是拖时间。
+     */
+    fun navigationDuration(start: Float, target: Float): Long =
+        if (!start.isFinite() || !target.isFinite()) NAVIGATION_MIN_MS
+        else (320f * abs(target - start).coerceIn(0f, 3.4f).pow(.45f)).roundToLong()
+            .coerceIn(NAVIGATION_MIN_MS, NAVIGATION_MAX_MS)
+
+    /**
+     * 导航曲线的陡度 a（临界阻尼弹簧 1-(1+at)e^-at 的 ωT）：距离越远"力度"越大——起步冲得更快、
+     * 减速滑行的尾巴更长。1 页 6、3 页 7.5；峰值速度约为平均速度的 a/e 倍（2.2–2.8 倍）。
+     */
+    fun navigationSteepness(distance: Float): Float =
+        if (!distance.isFinite()) NAVIGATION_MIN_STEEPNESS
+        else (NAVIGATION_MIN_STEEPNESS + .75f * (abs(distance) - 1f))
+            .coerceIn(NAVIGATION_MIN_STEEPNESS, NAVIGATION_MAX_STEEPNESS)
+
+    /**
+     * 接手时的速度衔接：曲线起点速度 = tangent / T，而 tangent 被夹在剩余距离的 [HANDOFF_TANGENT_RATIO] 倍
+     * 以内（再大会越过目标）。离目标很近却甩得很快时，按原时长速度会被夹断、页面像被拽住；此时缩短时长
+     * 让起点速度等于手指/当前速度，最短 [HANDOFF_MIN_MS]。反向或静止起步保持原时长。
+     */
+    fun handoffDuration(base: Long, start: Float, target: Float, velocity: Float): Long {
+        if (!start.isFinite() || !target.isFinite() || !velocity.isFinite()) return base
+        val delta = target - start
+        if (delta == 0f || velocity == 0f || delta * velocity < 0f) return base
+        val matched = (HANDOFF_TANGENT_RATIO * abs(delta) / abs(velocity) * 1000f).roundToLong()
+        return minOf(base, matched).coerceAtLeast(minOf(base, HANDOFF_MIN_MS))
+    }
+
+    const val HANDOFF_TANGENT_RATIO = 2.6f
+    const val HANDOFF_MIN_MS = 120L
+    const val NAVIGATION_MIN_MS = 240L
+    const val NAVIGATION_MAX_MS = 560L
+    const val NAVIGATION_MIN_STEEPNESS = 6f
+    const val NAVIGATION_MAX_STEEPNESS = 7.5f
 }
 
 /** Interrupted motion retains its current position and bounded velocity, ending at rest. */
-internal class SettingsPageMotionContinuation(start: Float, target: Int, velocity: Float, duration: Long, count: Int) {
+/**
+ * [navigation] 为 true 时（点击底栏、键盘、搜索跳转）改用非线性的临界阻尼弹簧曲线：从静止短暂加速、随后
+ * 长尾减速滑入，陡度随跨页距离增大，不过冲；拖动松手（false）保持原来的 Hermite 回弹。两种曲线都叠加
+ * 同一个速度项，动画途中再次点击时从当前速度无缝接续。
+ */
+internal class SettingsPageMotionContinuation(
+    start: Float, target: Int, velocity: Float, duration: Long, count: Int, private val navigation: Boolean = false
+) {
     private val last = SettingsPageMotionPolicy.lastPage(count).toFloat()
     private val lower = -SettingsPageMotionPolicy.EDGE_LIMIT
     private val upper = last + SettingsPageMotionPolicy.EDGE_LIMIT
@@ -136,10 +183,22 @@ internal class SettingsPageMotionContinuation(start: Float, target: Int, velocit
         raw.coerceIn(-cap, cap)
     }
 
+    private val steepness = SettingsPageMotionPolicy.navigationSteepness(delta)
+    private val springNorm = 1f - (1f + steepness) * exp(-steepness)
+
     fun value(fraction: Float): Float {
         val t = if (fraction.isFinite()) fraction.coerceIn(0f, 1f) else 1f
         val t2 = t * t
         val t3 = t2 * t
+        if (navigation) {
+            // 归一化到 t=1 恰好落在目标；速度项 t(1-t)^4 在两端都不贡献位移，只在起点提供初速度。
+            // 用四次而不是 Hermite 的二次：弹簧前段已很快，二次项衰减太慢，同向初速超过剩余距离 0.95 倍
+            // 就会越过目标；四次项在 tangent ≤ 5.7 倍剩余距离内都不过冲（上面的夹紧是 3 倍）。
+            val at = steepness * t
+            val spring = (1f - (1f + at) * exp(-at)) / springNorm
+            val rest = 1f - t
+            return (from + delta * spring + tangent * t * rest * rest * rest * rest).coerceIn(lower, upper)
+        }
         return ((2f * t3 - 3f * t2 + 1f) * from + (t3 - 2f * t2 + t) * tangent +
             (-2f * t3 + 3f * t2) * to).coerceIn(lower, upper)
     }
