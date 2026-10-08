@@ -7,11 +7,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
@@ -36,6 +34,7 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
     private val lifecycleInstalled = AtomicBoolean(false)
     private val stateLock = Any()
     private val buttons = WeakHashMap<Activity, TextView>()
+    private val visibilityListeners = WeakHashMap<Activity, ViewTreeVisibilitySync>()
     private var resumedActivity: WeakReference<Activity>? = null
     private var sessionActivity: WeakReference<Activity>? = null
     private var sessionVideoId: String? = null
@@ -104,7 +103,7 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
                         sessionVideoId to sessionCid
                     }
                     val videoId = identity.first ?: return
-                    attachButton(activity, videoId, identity.second, environment)
+                    attachButtonWhenToolbarReady(activity, videoId, identity.second, environment)
                 }
             }
 
@@ -168,7 +167,7 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
                     }
                     val activity = candidateActivity ?: synchronized(stateLock) { resumedActivity?.get() }
                     if (activity != null) {
-                        attachButton(activity, identity.first, identity.second, environment)
+                        attachButtonWhenToolbarReady(activity, identity.first, identity.second, environment)
                     } else {
                         environment.logInfo(ID, "video prepared but no current Activity; waiting for resume")
                     }
@@ -178,41 +177,57 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
         }
     }
 
-    private fun attachButton(activity: Activity, videoId: String, cid: Long?, environment: HookEnvironment) {
-        if (activity.isFinishing) return
-        val root = activity.window?.decorView as? ViewGroup ?: return
-        if (buttons[activity]?.parent === root) return
+    private fun attachButtonWhenToolbarReady(
+        activity: Activity,
+        videoId: String,
+        cid: Long?,
+        environment: HookEnvironment,
+        attempt: Int = 0
+    ) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        if (buttons[activity]?.parent != null) return
+        if (attempt >= TOOLBAR_RETRY_COUNT) {
+            environment.logInfo(ID, "toolbar action view not found: activity=${activity.javaClass.name}")
+            return
+        }
+        if (!attachButton(activity, videoId, cid, environment)) {
+            activity.window?.decorView?.postDelayed({
+                attachButtonWhenToolbarReady(activity, videoId, cid, environment, attempt + 1)
+            }, TOOLBAR_RETRY_DELAY_MS)
+        }
+    }
+
+    /** Inserts beside Bilibili's listen action instead of drawing over the video. */
+    private fun attachButton(activity: Activity, videoId: String, cid: Long?, environment: HookEnvironment): Boolean {
+        if (activity.isFinishing || activity.isDestroyed) return false
+        val root = activity.window?.decorView as? ViewGroup ?: return false
+        val listenIcon = root.findViewById<View>(LISTEN_ICON_ID) ?: return false
+        val listenAction = listenIcon.parent as? ViewGroup ?: return false
+        val actionHost = findToolbarActionHost(listenAction) ?: return false
+        if (buttons[activity]?.parent === actionHost) return true
         removeButton(activity)
         val button = TextView(activity).apply {
-            text = "导出字幕"
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            gravity = Gravity.CENTER
+            text = "字幕"
+            setTextColor(toolbarTextColor(listenIcon))
+            textSize = 11f
+            gravity = android.view.Gravity.CENTER
             isClickable = true
             isFocusable = true
             contentDescription = "导出当前视频字幕"
-            elevation = dp(activity, 24).toFloat()
-            translationZ = dp(activity, 24).toFloat()
-            setPadding(dp(activity, 12), 0, dp(activity, 12), 0)
-            background = GradientDrawable().apply {
-                cornerRadius = dp(activity, 18).toFloat()
-                setColor(Color.argb(190, 20, 20, 20))
-                setStroke(dp(activity, 1), Color.argb(90, 255, 255, 255))
-            }
+            setBackgroundColor(Color.TRANSPARENT)
+            minimumWidth = dp(activity, TOOLBAR_ACTION_SIZE_DP)
+            minimumHeight = dp(activity, TOOLBAR_ACTION_SIZE_DP)
         }
         button.setOnClickListener { export(activity, button, videoId, cid, environment) }
-        val params = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            dp(activity, 36),
-            Gravity.TOP or Gravity.END
-        ).apply {
-            topMargin = dp(activity, 48)
-            marginEnd = dp(activity, 12)
-        }
-        root.addView(button, params)
-        button.bringToFront()
+        val index = (actionHost.indexOfChild(listenAction) + 1).coerceAtLeast(0)
+        actionHost.addView(button, index)
+        button.visibility = listenAction.visibility
+        val sync = ViewTreeVisibilitySync(actionHost, listenAction, button)
+        visibilityListeners[activity] = sync
+        root.viewTreeObserver.addOnPreDrawListener(sync)
         buttons[activity] = button
-        environment.logInfo(ID, "button attached: bvid=$videoId")
+        environment.logInfo(ID, "button attached beside listen action: bvid=$videoId host=${actionHost.javaClass.name}")
+        return true
     }
 
     private fun export(activity: Activity, button: TextView, videoId: String, cid: Long?, environment: HookEnvironment) {
@@ -224,7 +239,7 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
             post {
                 if (activity.isFinishing || button.parent == null) return@post
                 button.isEnabled = true
-                button.text = "导出字幕"
+                button.text = "字幕"
                 result.fold(
                     onSuccess = { text ->
                         val clipboard = activity.getSystemService(ClipboardManager::class.java)
@@ -246,8 +261,45 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
     }
 
     private fun removeButton(activity: Activity) {
+        val root = activity.window?.decorView
+        visibilityListeners.remove(activity)?.let { sync ->
+            if (root?.viewTreeObserver?.isAlive == true) {
+                root.viewTreeObserver.removeOnPreDrawListener(sync)
+            }
+        }
         val button = buttons.remove(activity) ?: return
         (button.parent as? ViewGroup)?.removeView(button)
+    }
+
+    private fun findToolbarActionHost(listenAction: ViewGroup): ViewGroup? {
+        var current: ViewGroup = listenAction
+        repeat(MAX_TOOLBAR_ANCESTORS) {
+            val parent = current.parent as? ViewGroup ?: return@repeat
+            val name = parent.javaClass.name
+            if (name.contains("ActionMenuView") || name.contains("Toolbar")) return parent
+            if (parent.childCount >= 2 && parent.width > 0 && current.width > 0) {
+                return parent
+            }
+            current = parent
+        }
+        return null
+    }
+
+    private fun toolbarTextColor(listenIcon: View): Int {
+        return (listenIcon as? ImageView)?.imageTintList?.defaultColor ?: Color.WHITE
+    }
+
+    private class ViewTreeVisibilitySync(
+        private val host: ViewGroup,
+        private val source: View,
+        private val target: View
+    ) : android.view.ViewTreeObserver.OnPreDrawListener {
+        override fun onPreDraw(): Boolean {
+            if (target.parent === host && target.visibility != source.visibility) {
+                target.visibility = source.visibility
+            }
+            return true
+        }
     }
 
     /** Resolve an Activity from player/session objects when installation happened after resume. */
@@ -318,5 +370,10 @@ internal class SubtitleExportFeatureInstaller : FeatureInstaller {
         private const val CHANNEL = "subtitle_export_status"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val MAX_FIELDS_PER_OBJECT = 24
+        private const val LISTEN_ICON_ID = 2131301546
+        private const val TOOLBAR_ACTION_SIZE_DP = 40
+        private const val TOOLBAR_RETRY_COUNT = 24
+        private const val TOOLBAR_RETRY_DELAY_MS = 250L
+        private const val MAX_TOOLBAR_ANCESTORS = 5
     }
 }
