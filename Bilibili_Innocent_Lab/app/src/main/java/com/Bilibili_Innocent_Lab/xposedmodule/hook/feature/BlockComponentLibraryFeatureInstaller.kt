@@ -306,7 +306,8 @@ internal object ComponentLibraryPoolMatcher {
      * 而不是一个总开关。**空集时只扫描不过滤**，否则面板永远没有候选可勾——
      * 这是四个列表型面共同的纪律，见 AGENTS 勾选面板条目。
      *
-     * 另：本功能**只拦再次下载、不删已有文件**，要先在存储设置里清一次才看得出效果。
+     * 另：清单里消失的模块会被宿主当作弃用模块**删除本地文件**（`lib.mod.T#r`，日志
+     * `remote config delete abandon mod`，8.84.0–9.13.0 都有），所以拦截不只是"不再下载"。
      */
     val DEFAULT_KEYWORDS: Set<String> = emptySet()
 }
@@ -348,10 +349,19 @@ private class ComponentLibraryReplyStrategy private constructor(
             val moduleList = (poolModules?.invoke(pool) as? List<*>)
                 .orEmpty()
                 .filterNotNull()
-            val moduleText = moduleList.mapNotNull { module ->
+            // 匹配器返回的下标是对"传入名单"而言的：名字读不到的模块必须保留原下标
+            // （记成 原下标→名字 对），否则过滤后名单的下标套回未过滤的 moduleList
+            // 会整体错位，勾掉的模块拦不住、反而删掉别的模块。名字读不到按保守放行。
+            val namedModules = moduleList.withIndex().mapNotNull { (index, module) ->
                 runCatching { moduleName?.invoke(module) as? String }.getOrNull()
+                    ?.let { index to it }
             }
-            val match = ComponentLibraryPoolMatcher.match(poolText, moduleText, targetKeywords)
+            val match = ComponentLibraryPoolMatcher.match(
+                poolText, namedModules.map { it.second }, targetKeywords
+            )
+            val blockedIndexes = match?.moduleIndexes
+                ?.mapTo(HashSet()) { namedModules[it].first }
+                .orEmpty()
             val updated = when {
                 match == null -> pool
                 match.wholePool -> {
@@ -361,7 +371,7 @@ private class ComponentLibraryReplyStrategy private constructor(
                 addModule == null -> return@runCatching null
                 else -> {
                     changed = true
-                    rebuildPool(pool, moduleList.filterIndexed { index, _ -> index !in match.moduleIndexes })
+                    rebuildPool(pool, moduleList.filterIndexed { index, _ -> index !in blockedIndexes })
                 }
             }
             rebuiltPools += updated

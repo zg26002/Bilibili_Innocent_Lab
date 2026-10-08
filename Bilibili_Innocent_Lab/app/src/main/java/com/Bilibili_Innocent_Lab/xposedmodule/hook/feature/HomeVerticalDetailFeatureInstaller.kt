@@ -5,6 +5,7 @@ import android.app.Instrumentation
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
@@ -41,20 +42,26 @@ internal class HomeVerticalDetailFeatureInstaller(
         if (instrumentationCount == 0) {
             return missing(environment, "no-safe-activity-launch-hook-point")
         }
-        val playConfigCount = installPlayConfigStorySuppression(environment)
-        val intentSanitizerCount = installIntentHandlerSanitizer(environment)
-        val installed = instrumentationCount + playConfigCount + intentSanitizerCount
+        val playConfig = installPlayConfigStorySuppression(environment)
+        val intentSanitizer = installIntentHandlerSanitizer(environment)
+        val layered = playConfig.installed + intentSanitizer.installed
+        val installed = instrumentationCount + layered
+        // 分母只算这个宿主上确实存在的落点：PlayConfig/KPlayConfig 类或 Intent 入口
+        // 不存在的老宿主不算缺；存在却注册失败必须让 complete 掉成 false 并报 partial。
+        val expected = playConfig.expected + intentSanitizer.expected
+        val complete = layered == expected
+        val status = layerStatus(layered, expected)
 
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
-        environment.reportStatus(CHANNEL_STATUS, "success")
+        environment.reportStatus(CHANNEL_STATUS, status)
         environment.logInfo(
             "home_vertical_ok",
             "[BIL] 竖屏视频普通详情路由已安装，backend=" +
                 backends.joinToString("+") { it.name.lowercase() } +
-                ",instrumentation=$instrumentationCount,playConfig=$playConfigCount," +
-                "intentSanitizer=$intentSanitizerCount,status=success"
+                ",instrumentation=$instrumentationCount,playConfig=${playConfig.installed}/${playConfig.expected}," +
+                "intentSanitizer=${intentSanitizer.installed}/${intentSanitizer.expected},status=$status"
         )
-        return FeatureInstallResult.Installed(installed)
+        return FeatureInstallResult.Installed(installed, complete = complete)
     }
 
     /**
@@ -66,33 +73,67 @@ internal class HomeVerticalDetailFeatureInstaller(
     private fun resolveBackends(environment: HookEnvironment): List<HomeVerticalDetailBackend> {
         val loader = environment.classLoader ?: return emptyList()
         return HomeVerticalDetailBackend.entries.filter { backend ->
-            KavaMemberLookup.classOrNull(loader, backend.activityClassName)
-                ?.let { it isSubclassOf classOf<Activity>() } == true
+            val activityClass = KavaMemberLookup.classOrNull(loader, backend.activityClassName)
+            activityClass != null && activityClass isSubclassOf classOf<Activity>() &&
+                (!backend.requiresOnCreate || declaresOnCreate(activityClass))
         }
     }
 
-    /** 禁止宿主把横屏普通播放自动提升为 Story，不改变用户主动进入 Story 页的其它开关。 */
-    private fun installPlayConfigStorySuppression(environment: HookEnvironment): Int {
-        val loader = environment.classLoader ?: return 0
-        val boolValueClass = KavaMemberLookup.classOrNull(loader, BOOL_VALUE_CLASS) ?: return 0
-        val playConfigClass = KavaMemberLookup.classOrNull(loader, PLAY_CONFIG_CLASS) ?: return 0
-        val defaultMethod = KavaMemberLookup.methodOrNull(boolValueClass, "getDefaultInstance")
-            ?.takeIf { it.isStatic && it.returnType == boolValueClass }
-            ?: return 0
-        val defaultValue = runCatching { defaultMethod.invoke(null) }
-            .getOrNull()
+    /**
+     * 禁止宿主把横屏普通播放自动提升为 Story，不改变用户主动进入 Story 页的其它开关。
+     *
+     * 宿主读这两个开关的类**随版本换了**：≤9.12 的消费端调 Java protobuf `PlayConfig`，9.13 起
+     * 全部改调 Kotlin 序列化版 `KPlayConfig`（2026-09-30 用 dexq 对 8.84–9.14 六个宿主做调用点
+     * 矩阵：Java getter 的非 Builder 调用点 9.10.0 还有 3 个、9.13.0 / 9.14.0 是 0，`KPlayConfig`
+     * 反之）。只 Hook Java 版在 9.13+ 上会"注册成功、永不触发"，所以两套都装，各自按类名判存。
+     */
+    private fun installPlayConfigStorySuppression(environment: HookEnvironment): PlayConfigLayer {
+        val loader = environment.classLoader ?: return PlayConfigLayer(0, 0)
+        val java = installPlayConfigGetters(
+            environment, loader, "play_config", PLAY_CONFIG_CLASS, BOOL_VALUE_CLASS
+        ) { boolValueClass ->
+            KavaMemberLookup.methodOrNull(boolValueClass, "getDefaultInstance")
+                ?.takeIf { it.isStatic && it.returnType == boolValueClass }
+                ?.let { runCatching { it.invoke(null) }.getOrNull() }
+        }
+        val kotlin = installPlayConfigGetters(
+            environment, loader, "k_play_config", K_PLAY_CONFIG_CLASS, K_BOOL_VALUE_CLASS
+        ) { boolValueClass ->
+            // kotlinx.serialization 数据类：全默认值的公开无参构造应得到 value=false；不假设，实测为 false 才用。
+            runCatching { boolValueClass.getDeclaredConstructor().newInstance() }
+                .getOrNull()
+                ?.takeIf { instance ->
+                    KavaMemberLookup.methodOrNull(boolValueClass, "getValue")
+                        ?.let { runCatching { it.invoke(instance) }.getOrNull() } == false
+                }
+        }
+        return PlayConfigLayer(java.installed + kotlin.installed, java.expected + kotlin.expected)
+    }
+
+    /** [defaultValueOf] 返回"开关关闭"的默认实例，返回 null 表示这套类在当前宿主上不可用。 */
+    private fun installPlayConfigGetters(
+        environment: HookEnvironment,
+        loader: ClassLoader,
+        tag: String,
+        configClassName: String,
+        boolValueClassName: String,
+        defaultValueOf: (Class<*>) -> Any?
+    ): PlayConfigLayer {
+        val boolValueClass = KavaMemberLookup.classOrNull(loader, boolValueClassName) ?: return PlayConfigLayer(0, 0)
+        val configClass = KavaMemberLookup.classOrNull(loader, configClassName) ?: return PlayConfigLayer(0, 0)
+        val defaultValue = defaultValueOf(boolValueClass)
             ?.takeIf(boolValueClass::isInstance)
-            ?: return 0
+            ?: return PlayConfigLayer(0, 0)
         var installed = 0
         PLAY_CONFIG_STORY_GETTERS.forEach { methodName ->
-            val method = KavaMemberLookup.methodOrNull(playConfigClass, methodName)
+            val method = KavaMemberLookup.methodOrNull(configClass, methodName)
                 ?.takeIf {
                     !it.isStatic && it.parameterCount == 0 &&
                         it.returnType == boolValueClass
                 } ?: return@forEach
             runCatching {
                 environment.registrar.exact(
-                    "home.vertical.play_config.$methodName",
+                    "home.vertical.$tag.$methodName",
                     method.declaringClass,
                     method.name
                 ) {
@@ -105,13 +146,16 @@ internal class HomeVerticalDetailFeatureInstaller(
                 installed += 1
             }.onFailure { throwable ->
                 environment.logError(
-                    "home_vertical_play_config_$methodName",
-                    "[BIL] PlayConfig 自动 Story 抑制注册失败($methodName): $throwable"
+                    "home_vertical_${tag}_$methodName",
+                    "[BIL] ${configClass.simpleName} 自动 Story 抑制注册失败($methodName): $throwable"
                 )
             }
         }
-        return installed
+        return PlayConfigLayer(installed, PLAY_CONFIG_STORY_GETTERS.size)
     }
+
+    /** 该层的"已装上"与"本宿主确实存在的落点数"；后者为 0 表示这一层在此宿主不适用。 */
+    private data class PlayConfigLayer(val installed: Int, val expected: Int)
 
     /**
      * 唯一路由写入边界。动态查找 Intent 参数，先复制再构造并校验完整契约，任何异常均保留
@@ -147,10 +191,18 @@ internal class HomeVerticalDetailFeatureInstaller(
                         ) {
                             return@before
                         }
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        val applied = when (
-                            val outcome = rewriteIntentSafely(intent, backends, environment)
+                        val outcome = rewriteIntentSafely(intent, backends, environment)
+                        // 用户在普通详情页里主动点了播放器右下角"竖屏"（issue #9）：策略层已判定放行，
+                        // 让宿主进 Story。这是预期行为而不是"该改没改"，所以不计 OBSERVED，避免诊断里
+                        // 出现"观察到却从未应用"；仍走 logSkipOnce 留一条脱敏的 Intent 结构日志。
+                        if (outcome is LaunchRewrite.Skipped &&
+                            outcome.reason == HomeVerticalLaunchSkip.DETAIL_PAGE_VERTICAL_SWITCH
                         ) {
+                            logSkipOnce(environment, intent, outcome.reason)
+                            return@before
+                        }
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        val applied = when (outcome) {
                             is LaunchRewrite.Applied -> outcome
                             is LaunchRewrite.Skipped -> {
                                 logSkipOnce(environment, intent, outcome.reason)
@@ -178,8 +230,8 @@ internal class HomeVerticalDetailFeatureInstaller(
     }
 
     /** IntentHandler 只清理强制 Story 参数，不再承担目标页面改写。 */
-    private fun installIntentHandlerSanitizer(environment: HookEnvironment): Int {
-        val point = points?.intentHandlerOnCreate ?: return 0
+    private fun installIntentHandlerSanitizer(environment: HookEnvironment): PlayConfigLayer {
+        val point = points?.intentHandlerOnCreate ?: return PlayConfigLayer(0, 0)
         return runCatching {
             environment.registrar.adapted("home.vertical.intent_handler_sanitizer", point) {
                 before {
@@ -198,13 +250,13 @@ internal class HomeVerticalDetailFeatureInstaller(
                     )
                 }
             }
-            1
+            PlayConfigLayer(1, 1)
         }.getOrElse { throwable ->
             environment.logError(
                 "home_vertical_intent_handler_failed",
                 "[BIL] 宿主 Intent 入口参数清理注册失败: $throwable"
             )
-            0
+            PlayConfigLayer(0, 1)
         }
     }
 
@@ -224,7 +276,8 @@ internal class HomeVerticalDetailFeatureInstaller(
             aid = intent.extraToken(AID_EXTRA),
             avid = intent.extraToken(AVID_EXTRA),
             bvid = intent.extraToken(BVID_EXTRA),
-            preloadCid = null
+            preloadCid = null,
+            fromSpmid = launchOriginSpmid(intent)
         )
         var cidResolved = false
         var firstReason: HomeVerticalLaunchSkip? = null
@@ -340,6 +393,18 @@ internal class HomeVerticalDetailFeatureInstaller(
         )
     }
 
+    /**
+     * 启动来源埋点：先看 Intent extra（BLRouter 会把 `RouteRequest.extras` 原样 `putExtras` 成顶层
+     * extra，9.14.0 `DefaultGlobalLauncher.createIntent` 反汇编实证），缺失再取 URI 查询。
+     * 只在已确认是 Story 路由的 Intent 上调用；`Uri.getQueryParameter` 按子串定位、只解码命中的值。
+     */
+    private fun launchOriginSpmid(intent: Intent): String? =
+        intent.extraToken(FROM_SPMID_EXTRA)
+            ?: runCatching { intent.data?.getQueryParameter(FROM_SPMID_EXTRA) }
+                .getOrNull()
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+
     private fun describeIntentShape(intent: Intent): String {
         val uri = intent.data
         val root = uri?.let { "${it.scheme}://${it.host}" } ?: "none"
@@ -429,11 +494,18 @@ internal class HomeVerticalDetailFeatureInstaller(
 
     companion object {
         const val ID = "home_vertical_detail"
+
+        internal fun layerStatus(installed: Int, expected: Int): String =
+            if (installed == expected) "success" else "partial:$installed/$expected"
+
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "home_vertical_detail_status"
         private const val BOOL_VALUE_CLASS = "com.bapis.bilibili.app.distribution.BoolValue"
         private const val PLAY_CONFIG_CLASS =
             "com.bapis.bilibili.app.distribution.setting.play.PlayConfig"
+        private const val K_BOOL_VALUE_CLASS = "com.bapis.bilibili.app.distribution.KBoolValue"
+        private const val K_PLAY_CONFIG_CLASS =
+            "com.bapis.bilibili.app.distribution.setting.play.KPlayConfig"
         private const val PLAYER_PRELOAD_EXTRA = "player_preload"
         private const val BLROUTER_TARGET_URL_EXTRA = "blrouter.targeturl"
         private const val BLROUTER_PAGE_NAME_EXTRA = "blrouter.pagename"
@@ -444,6 +516,7 @@ internal class HomeVerticalDetailFeatureInstaller(
         private const val CID_EXTRA = "cid"
         private const val BVID_EXTRA = "bvid"
         private const val FROM_EXTRA = "from"
+        private const val FROM_SPMID_EXTRA = "from_spmid"
         private const val UNITED_VIDEO_PAGE = "bilibili://united_video/"
         private const val DETAIL_SOURCE = 7
         private const val MAX_PLAYER_PRELOAD_TOKEN = 999_999_998L
@@ -474,5 +547,9 @@ internal class HomeVerticalDetailFeatureInstaller(
 
         internal fun normalizeVideoRouteUri(uri: String): String? =
             HomeVerticalDetailRoutePolicy.normalizeVideoDetailUri(uri)
+
+        /** 只看类自己声明的 `onCreate(Bundle)`；反射失败一律视为没有，宁可少用一个后端。 */
+        internal fun declaresOnCreate(activityClass: Class<*>): Boolean =
+            runCatching { activityClass.getDeclaredMethod("onCreate", classOf<Bundle>()) }.isSuccess
     }
 }

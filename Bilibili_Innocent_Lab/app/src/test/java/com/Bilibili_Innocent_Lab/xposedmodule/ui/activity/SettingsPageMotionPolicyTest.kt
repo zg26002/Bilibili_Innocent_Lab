@@ -5,6 +5,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsPageMotionPolicyTest {
+    @Test fun fifthPageCanBeSelectedRenderedAndReachedWithoutCrossingTheEdge() {
+        assertEquals(4, SettingsPageMotionPolicy.selected(4, 5))
+        assertEquals(4, SettingsPageMotionPolicy.selected(99, 5))
+        assertEquals(listOf(3, 4), (0..4).filter {
+            SettingsPageMotionPolicy.isPageVisible(it, 3.5f, 5)
+        })
+        assertEquals(4, SettingsPageMotionPolicy.releasePage(3, 3.4f, 0f, 5))
+        assertEquals(4, SettingsPageMotionPolicy.releasePage(4, 5f, 2f, 5))
+        val events = mutableListOf<String>()
+        assertTrue(SettingsPageUserNavigation.request(3, 4, 5,
+            onUserInteraction = { events += "cancel" }, selectPage = { events += "select:$it" }))
+        assertEquals(listOf("cancel", "select:4"), events)
+    }
+
     @Test fun horizontalAccessibilityActionsFollowPhysicalDirectionInBothLayouts() {
         assertEquals(0, SettingsPageMotionPolicy.physicalPageTarget(1, -1, false))
         assertEquals(2, SettingsPageMotionPolicy.physicalPageTarget(1, 1, false))
@@ -36,7 +50,7 @@ class SettingsPageMotionPolicyTest {
 
     @Test fun edgeSamePageAndMissingPageNavigationNeverCancelAnExistingReveal() {
         for ((current, target, count) in listOf(Triple(0, -1, 4), Triple(3, 4, 4),
-            Triple(2, 2, 4), Triple(0, 0, 0), Triple(0, 1, 1), Triple(0, 4, 10))) {
+            Triple(2, 2, 4), Triple(0, 0, 0), Triple(0, 1, 1), Triple(0, SettingsPageMotionPolicy.MAX_PAGES, 10))) {
             var cancelled = 0
             var selected = 0
             assertFalse(SettingsPageUserNavigation.request(current, target, count,
@@ -236,8 +250,84 @@ class SettingsPageMotionPolicyTest {
         }
         assertEquals(2f, SettingsPageMotionContinuation(position, 2, 0f, 340L, 4).value(1f), 0f)
         assertEquals(0, SettingsPageMotionPolicy.selected(4, 0))
-        assertEquals(3, SettingsPageMotionPolicy.selected(99, 99))
+        assertEquals(SettingsPageMotionPolicy.MAX_PAGES - 1, SettingsPageMotionPolicy.selected(99, 99))
         assertEquals(180L, SettingsPageMotionPolicy.duration(1f, 1f))
         assertEquals(420L, SettingsPageMotionPolicy.duration(-1f, 99f))
+    }
+
+    /** 点击切页：从静止起步、非线性（前快后慢），单调无过冲，恰好停在目标。 */
+    @Test fun navigationCurveStartsFromRestAcceleratesThenGlidesIntoTarget() {
+        for ((from, to) in listOf(0f to 1, 0f to 3, 3f to 0, 2f to 1)) {
+            val duration = SettingsPageMotionPolicy.navigationDuration(from, to.toFloat())
+            val curve = SettingsPageMotionContinuation(from, to, 0f, duration, 4, navigation = true)
+            assertEquals(from, curve.value(0f), 0f)
+            assertEquals(to.toFloat(), curve.value(1f), .00001f)
+            val sign = if (to > from) 1f else -1f
+            var previous = from
+            repeat(1000) {
+                val next = curve.value((it + 1) / 1000f)
+                assertTrue((next - previous) * sign >= -.000001f)
+                previous = next
+            }
+            // 起点速度为 0（第一毫帧几乎不动），中段过半、前 40% 时间走完大部分：不是线性，也不是对称的 smoothstep。
+            assertTrue(abs(curve.value(.001f) - from) < .001f * abs(to - from))
+            assertTrue(abs(curve.value(.4f) - from) > .7f * abs(to - from))
+        }
+    }
+
+    @Test fun fartherJumpsLastLongerAndLaunchHarder() {
+        val one = SettingsPageMotionPolicy.navigationDuration(0f, 1f)
+        val two = SettingsPageMotionPolicy.navigationDuration(0f, 2f)
+        val three = SettingsPageMotionPolicy.navigationDuration(0f, 3f)
+        assertTrue(one < two && two < three)
+        assertTrue(three <= SettingsPageMotionPolicy.NAVIGATION_MAX_MS)
+        // 时长增长慢于距离：远跳的额外距离由更陡的起步吸收。
+        assertTrue(three < 3 * one)
+        assertTrue(SettingsPageMotionPolicy.navigationSteepness(3f) > SettingsPageMotionPolicy.navigationSteepness(1f))
+        assertEquals(SettingsPageMotionPolicy.NAVIGATION_MIN_MS, SettingsPageMotionPolicy.navigationDuration(Float.NaN, 1f))
+    }
+
+    /** 动画途中再次点击：新曲线以当前速度起步，位置与速度都连续。 */
+    @Test fun retargetDuringNavigationKeepsVelocityContinuous() {
+        val duration = 400L
+        val velocity = 4f
+        val curve = SettingsPageMotionContinuation(1.3f, 3, velocity, duration, 4, navigation = true)
+        val dt = .0005f
+        val startSpeed = (curve.value(dt) - curve.value(0f)) / (dt * duration / 1000f)
+        assertEquals(velocity, startSpeed, .15f)
+        for (v in listOf(-8f, 8f)) for (start in listOf(-.17f, 3.17f)) {
+            val bounded = SettingsPageMotionContinuation(start, 0, v, duration, 4, navigation = true)
+            repeat(1001) { assertTrue(bounded.value(it / 1000f) in -.18f..3.18f) }
+        }
+    }
+
+    /** 中途再点、同向高速接续：导航曲线不越过目标。 */
+    @Test fun navigationRetargetNeverOvershootsEvenWithFastSameDirectionVelocity() {
+        for (target in 1..3) for (velocity in listOf(.5f, 2f, 4f, 8f)) for (start in listOf(0f, .4f, .9f)) {
+            if (start >= target) continue
+            val base = SettingsPageMotionPolicy.navigationDuration(start, target.toFloat())
+            val duration = SettingsPageMotionPolicy.handoffDuration(base, start, target.toFloat(), velocity)
+            val curve = SettingsPageMotionContinuation(start, target, velocity, duration, 4, navigation = true)
+            repeat(1001) { assertTrue(curve.value(it / 1000f) <= target + .0001f) }
+        }
+    }
+
+    /** 离目标近却甩得快：缩短时长让起点速度等于接手速度（不被夹断），反向/静止保持原时长。 */
+    @Test fun handoffDurationMatchesTheIncomingVelocity() {
+        for (navigation in listOf(false, true)) for (velocity in listOf(3f, 6f, 8f)) {
+            val start = .8f
+            val base = if (navigation) SettingsPageMotionPolicy.navigationDuration(start, 1f)
+            else SettingsPageMotionPolicy.duration(start, 1f)
+            val duration = SettingsPageMotionPolicy.handoffDuration(base, start, 1f, velocity)
+            assertTrue(duration <= base && duration >= SettingsPageMotionPolicy.HANDOFF_MIN_MS)
+            val curve = SettingsPageMotionContinuation(start, 1, velocity, duration, 4, navigation)
+            val dt = .0005f
+            val speed = (curve.value(dt) - curve.value(0f)) / (dt * duration / 1000f)
+            if (duration > SettingsPageMotionPolicy.HANDOFF_MIN_MS) assertEquals(velocity, speed, velocity * .06f)
+            repeat(1001) { assertTrue(curve.value(it / 1000f) <= 1.0001f) }
+        }
+        assertEquals(340L, SettingsPageMotionPolicy.handoffDuration(340L, .8f, 1f, -5f))
+        assertEquals(340L, SettingsPageMotionPolicy.handoffDuration(340L, .8f, 1f, 0f))
+        assertEquals(340L, SettingsPageMotionPolicy.handoffDuration(340L, 0f, 1f, .5f))
     }
 }

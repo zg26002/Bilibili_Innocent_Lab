@@ -52,6 +52,41 @@ internal object FeaturePreferences {
     const val HOME_RECOMMEND_FEEDBACK_AUTO_CONFIRM = "recommendation_feedback_auto_confirm"
 
     /**
+     * 屏蔽带「含AI生成内容」创作声明的视频。**默认关**。
+     *
+     * 一个开关管三处：详情页命中声明即改写 `ViewReply.ecode` 让宿主自己跳到补位视频；
+     * 首页推荐按 `qn_feature.creation_tags` 的 `aigc` 标签提前删卡；
+     * 相关推荐按本进程已确认的 aid 删卡。判据见 `AiDeclaredVideoPolicy`。
+     */
+    const val BLOCK_AI_DECLARED_VIDEOS = "block_ai_declared_videos"
+
+    /**
+     * 强力模式 · 屏蔽发布者（键名沿用最初的「强力模式」开关，已开启的用户不受影响）：
+     * 详情页确认声明后，把发布者记进「屏蔽 UP」的点选观测面。
+     *
+     * 宿主侧只写本进程的 [AuthorPickSession] 与观测快照，**不写配置**；
+     * 长期名单仍由模块 App 在前台时并入 [HOME_RECOMMEND_BLOCKED_AUTHORS]，
+     * 且这一类来源不需要打开「自动确认」也会被并入。只在 [BLOCK_AI_DECLARED_VIDEOS] 开着时生效。
+     */
+    const val BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE = "block_ai_declared_videos_strong_mode"
+
+    /**
+     * 强力模式 · 获取 access_key：打开详情页后在后台预检首屏推荐（[AiRelatePrechecker]）。
+     * 实际生效 = 本项 且 [BILI_ACCESS_KEY_AUTHORIZED]（通用授权）；只在 [BLOCK_AI_DECLARED_VIDEOS] 开着时有意义。
+     */
+    const val BLOCK_AI_DECLARED_VIDEOS_PRECHECK = "block_ai_declared_videos_precheck"
+
+    /**
+     * 实验性兼容：允许模块在哔哩哔哩进程内读取当前登录账号的 access_key。**默认关**，打开前必须二次确认风险。
+     * 这是**通用授权**：任何需要账号身份的功能都以它为前提（读取经 [BiliAccessKeyProbe]），并在说明里注明。
+     *
+     * 令牌原文只在宿主进程内存里读、用完即弃：不写盘、不进日志/诊断/回执/备份，也不离开宿主进程。
+     * [BLOCK_AI_DECLARED_VIDEOS_PRECHECK] 以它为前提（推荐预检的实际生效条件 = 预检开 且 本项已授权）。
+     * 备份恢复为 MANUAL：换机导入备份不会悄悄重新授权。
+     */
+    const val BILI_ACCESS_KEY_AUTHORIZED = "bili_access_key_authorized"
+
+    /**
      * 要拦截下载的组件库资源池。
      *
      * 与其余四个勾选面同构：`_SELECTORS` 是面板勾出来的，`_RULES` 是手填的，
@@ -130,10 +165,25 @@ internal object FeaturePreferences {
     const val REMOVE_STORY_TV = "remove_story_tv"
     const val REMOVE_STORY_VARIETY = "remove_story_variety"
     const val REMOVE_STORY_MUSIC = "remove_story_music"
+    /** Story 竖屏流右侧互动图标，每个图标单独开关，见 StoryActionIcon。 */
+    const val HIDE_STORY_ACTION_LIKE = "hide_story_action_like"
+    const val HIDE_STORY_ACTION_COMMENT = "hide_story_action_comment"
+    const val HIDE_STORY_ACTION_COIN = "hide_story_action_coin"
+    const val HIDE_STORY_ACTION_FAVORITE = "hide_story_action_favorite"
+    const val HIDE_STORY_ACTION_SHARE = "hide_story_action_share"
+    const val HIDE_STORY_ACTION_DANMAKU_TOGGLE = "hide_story_action_danmaku_toggle"
     const val BOTTOM_BAR_HIDDEN_RULES = "bottom_bar_hidden_rules"
 
     /** 勾选面板写入的选择器；与同名 *_HIDDEN_RULES 手填规则取并集，互不覆盖。 */
     const val BOTTOM_BAR_HIDDEN_SELECTORS = "bottom_bar_hidden_selectors"
+    const val HOST_BOTTOM_BAR_LIQUID_GLASS = "host_bottom_bar_liquid_glass"
+    const val HOST_BOTTOM_BAR_COMPACT = "host_bottom_bar_compact"
+    const val HOST_BOTTOM_BAR_ICON_ONLY = "host_bottom_bar_icon_only"
+    const val HOST_BOTTOM_BAR_TOUCH_GLOW = "host_bottom_bar_touch_glow"
+    const val HOST_VIDEO_CARDS = "host_video_cards"
+    const val HOST_VIDEO_CARD_RADIUS_DP = "host_video_card_radius_dp"
+    const val HOST_TOP_BAR_LIQUID_GLASS = "host_top_bar_liquid_glass"
+    const val HOST_TOP_BAR_TOUCH_GLOW = "host_top_bar_touch_glow"
     const val HOME_TAB_HIDDEN_SELECTORS = "home_tab_hidden_selectors"
     const val HOME_COMPONENT_HIDDEN_SELECTORS = "home_component_hidden_selectors"
     const val PLAYER_DEFAULT_QUALITY_QN = "player_default_quality_qn"
@@ -146,6 +196,7 @@ internal object FeaturePreferences {
     const val PLAYER_DISABLE_LONG_PRESS = "player_disable_long_press"
     const val PLAYER_LONG_PRESS_SPEED_PERCENT = "player_long_press_speed_percent"
     const val PLAYER_DEFAULT_SPEED_PERCENT = "player_default_speed_percent"
+    const val PLAYER_SPONSOR_BLOCK_ENABLED = "player_sponsor_block_enabled"
     const val BLOCK_TEENAGERS_MODE_PROMPT = "block_teenagers_mode_prompt"
     const val REMOVE_COMMENT_SEARCH_LINKS = "remove_comment_search_links"
     const val REMOVE_COMMENT_EMPTY_GUIDE = "remove_comment_empty_guide"
@@ -190,6 +241,8 @@ internal object FeaturePreferences {
 
     /** 开屏页背景跟随系统深色模式。 */
     const val SPLASH_AUTO_NIGHT = "splash_auto_night"
+    const val BRAND_SPLASH_SKIP = "brand_splash_skip"
+    const val BRAND_SPLASH_CUSTOM = "brand_splash_custom"
 
     /** 直播间上下滑动切换房间。 */
     const val BLOCK_LIVE_ROOM_SWITCH = "block_live_room_switch"
@@ -207,6 +260,90 @@ internal object FeaturePreferences {
     /** 按发布者过滤动态：规则行既可写 UID 也可写用户名。 */
     const val DYNAMIC_AUTHOR_FILTER_ENABLED = "dynamic_author_filter_enabled"
     const val DYNAMIC_AUTHOR_FILTER_RULES = "dynamic_author_filter_rules"
+
+    /** 智能过滤动态：用 JEV 按语义判断抽奖、带货、引战；配置在实验性功能 → 兼容。 */
+    const val DYNAMIC_SEMANTIC_FILTER_ENABLED = "dynamic_semantic_filter_enabled"
+
+    /** 各过滤面勾选的屏蔽类型（逗号分隔的预设 id，见 `SemanticPresets`）。 */
+    const val DYNAMIC_SEMANTIC_FILTER_RULES = "dynamic_semantic_filter_rules"
+
+    /** 智能过滤弹幕 / 评论 / 推荐视频（首页推荐与相关推荐共用）。 */
+    const val DANMAKU_SEMANTIC_FILTER_ENABLED = "danmaku_semantic_filter_enabled"
+    const val DANMAKU_SEMANTIC_FILTER_RULES = "danmaku_semantic_filter_rules"
+    const val COMMENT_SEMANTIC_FILTER_ENABLED = "comment_semantic_filter_enabled"
+    const val COMMENT_SEMANTIC_FILTER_RULES = "comment_semantic_filter_rules"
+    const val VIDEO_SEMANTIC_FILTER_ENABLED = "video_semantic_filter_enabled"
+    const val VIDEO_SEMANTIC_FILTER_RULES = "video_semantic_filter_rules"
+
+    /** JEV 接口地址（空 = 官方）；API Key 不在这里，见 `RemoteHookConfigContract.KEY_SEMANTIC_JEV_API_KEY`。 */
+    const val SEMANTIC_JEV_ENDPOINT = "semantic_jev_endpoint"
+
+    /** JEV 灵敏度：low / medium / high。 */
+    const val SEMANTIC_JEV_SENSITIVITY = "semantic_jev_sensitivity"
+
+    /** 判定后端：jev（结构化接口）/ openai（OpenAI 兼容聊天接口）/ cloudflare（Workers AI）。 */
+    const val SEMANTIC_JEV_PROVIDER = "semantic_jev_provider"
+
+    /** 模型名；JEV 留空为 jev-latest，OpenAI 兼容必填（如 deepseek-chat、glm-4-flash）。 */
+    const val SEMANTIC_JEV_MODEL = "semantic_jev_model"
+
+    /** 用户写的判定口径（空 = 默认）；防注入前缀与输出格式由模块固定，见 SemanticGuidance。 */
+    const val SEMANTIC_JEV_GUIDANCE = "semantic_jev_guidance"
+
+    /** 2–4 号判定来源：接口类型 / 地址 / 模型（Key 是运行时键，见 RemoteHookConfigContract）。1 号沿用 SEMANTIC_JEV_*。 */
+    const val SEMANTIC_SOURCE_2_PROVIDER = "semantic_source_2_provider"
+    const val SEMANTIC_SOURCE_2_ENDPOINT = "semantic_source_2_endpoint"
+    const val SEMANTIC_SOURCE_2_MODEL = "semantic_source_2_model"
+    const val SEMANTIC_SOURCE_3_PROVIDER = "semantic_source_3_provider"
+    const val SEMANTIC_SOURCE_3_ENDPOINT = "semantic_source_3_endpoint"
+    const val SEMANTIC_SOURCE_3_MODEL = "semantic_source_3_model"
+    const val SEMANTIC_SOURCE_4_PROVIDER = "semantic_source_4_provider"
+    const val SEMANTIC_SOURCE_4_ENDPOINT = "semantic_source_4_endpoint"
+    const val SEMANTIC_SOURCE_4_MODEL = "semantic_source_4_model"
+
+    /** 各过滤面的判定来源：auto（自动分流）或来源编号。 */
+    const val DYNAMIC_SEMANTIC_FILTER_SOURCE = "dynamic_semantic_filter_source"
+    const val DANMAKU_SEMANTIC_FILTER_SOURCE = "danmaku_semantic_filter_source"
+    const val COMMENT_SEMANTIC_FILTER_SOURCE = "comment_semantic_filter_source"
+    const val VIDEO_SEMANTIC_FILTER_SOURCE = "video_semantic_filter_source"
+
+    /** 各过滤面的自定义屏蔽类型（JSON 数组文本，见 SemanticCustomRule）。 */
+    const val DYNAMIC_SEMANTIC_FILTER_CUSTOM_RULES = "dynamic_semantic_filter_custom_rules"
+    const val DANMAKU_SEMANTIC_FILTER_CUSTOM_RULES = "danmaku_semantic_filter_custom_rules"
+    const val COMMENT_SEMANTIC_FILTER_CUSTOM_RULES = "comment_semantic_filter_custom_rules"
+    const val VIDEO_SEMANTIC_FILTER_CUSTOM_RULES = "video_semantic_filter_custom_rules"
+
+    /** 判定来源 n 的 (接口类型, 地址, 模型) 偏好键；1 号是最早的单来源键。 */
+    fun semanticSourceKeys(index: Int): Triple<String, String, String> = when (index) {
+        1 -> Triple(SEMANTIC_JEV_PROVIDER, SEMANTIC_JEV_ENDPOINT, SEMANTIC_JEV_MODEL)
+        2 -> Triple(SEMANTIC_SOURCE_2_PROVIDER, SEMANTIC_SOURCE_2_ENDPOINT, SEMANTIC_SOURCE_2_MODEL)
+        3 -> Triple(SEMANTIC_SOURCE_3_PROVIDER, SEMANTIC_SOURCE_3_ENDPOINT, SEMANTIC_SOURCE_3_MODEL)
+        4 -> Triple(SEMANTIC_SOURCE_4_PROVIDER, SEMANTIC_SOURCE_4_ENDPOINT, SEMANTIC_SOURCE_4_MODEL)
+        else -> throw IllegalArgumentException("semantic source $index")
+    }
+
+    fun semanticRouteKey(surface: SemanticSurface): String = when (surface) {
+        SemanticSurface.DYNAMIC -> DYNAMIC_SEMANTIC_FILTER_SOURCE
+        SemanticSurface.DANMAKU -> DANMAKU_SEMANTIC_FILTER_SOURCE
+        SemanticSurface.COMMENT -> COMMENT_SEMANTIC_FILTER_SOURCE
+        SemanticSurface.VIDEO -> VIDEO_SEMANTIC_FILTER_SOURCE
+    }
+
+    fun semanticCustomRulesKey(surface: SemanticSurface): String = when (surface) {
+        SemanticSurface.DYNAMIC -> DYNAMIC_SEMANTIC_FILTER_CUSTOM_RULES
+        SemanticSurface.DANMAKU -> DANMAKU_SEMANTIC_FILTER_CUSTOM_RULES
+        SemanticSurface.COMMENT -> COMMENT_SEMANTIC_FILTER_CUSTOM_RULES
+        SemanticSurface.VIDEO -> VIDEO_SEMANTIC_FILTER_CUSTOM_RULES
+    }
+
+    /** 等待判定的上限（毫秒）；0 = 自动（弹幕 3 s、其余 2.5 s），否则 500–30000。 */
+    const val SEMANTIC_JEV_TIMEOUT_MS = "semantic_jev_timeout_ms"
+
+    /** JEV 判定结果保存时长（天，1–90），内存与硬盘缓存共用。 */
+    const val SEMANTIC_JEV_CACHE_DAYS = "semantic_jev_cache_days"
+
+    /** JEV 首屏是否等待判定；默认不等（首屏放行，下次加载生效）。 */
+    const val SEMANTIC_JEV_WAIT_FIRST_SCREEN = "semantic_jev_wait_first_screen"
 
     /** 带货与「UP 主推荐」附加卡。 */
     const val REMOVE_DYNAMIC_PROMOTIONS = "remove_dynamic_promotions"

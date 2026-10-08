@@ -85,7 +85,7 @@ class ReleaseHighlightsTest {
         assertEquals(batches.size,batches.map { it.revision }.distinct().size)
         assertTrue(batches.all { it.revision > 0 })
         val entries = batches.flatMap { it.entries }
-        assertTrue(entries.size in 1..64)
+        assertTrue(entries.size in 1..65)
         assertEquals(entries.size,entries.map { it.id }.distinct().size)
         entries.forEach { assertTrue(it.titleRes != 0); assertTrue(it.descriptionRes != 0) }
         val targets = entries.mapNotNull { it.destination }
@@ -97,7 +97,10 @@ class ReleaseHighlightsTest {
         val newer = SettingsCatalog.specs.filter {
             it.introducedCatalogVersion > ReleaseHighlightsCatalog.SETTINGS_BASELINE_VERSION
         }.map { it.id }.toSet()
-        assertTrue(targets.map { it.settingId }.toSet().containsAll(newer))
+        // 附带设置须在 alsoCovers 里显式逐个列出（同一功能的配套项），且必须是真实设置。
+        val covered = targets.flatMap { it.alsoCovers }.toSet()
+        assertTrue(covered.all { it in SettingsCatalog.byId })
+        assertTrue((targets.map { it.settingId }.toSet() + covered).containsAll(newer))
     }
     @Test fun presentationStateIsNotAnExportedOrHostConfigurationSetting() {
         assertFalse(SettingsCatalog.specs.any { it.storageKey.startsWith("highlights_") })

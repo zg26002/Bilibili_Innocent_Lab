@@ -140,7 +140,9 @@ internal class ElasticInteractionController(
             // The original dispatcher may synchronously clear this controller, detach the source,
             // or start a transition; never install visuals into a superseded preparation.
             if (target !== preparedTarget || lease !== preparedLease) return handled
-            if (!handled || !validGeometry()) clear() else activatePreparedPress()
+            // 祖先容器已把整段手势接管（回弹视口接住回弹）：内容没收到按下，不点亮高光。
+            val claimed = preparedTarget != null && ElasticGestureClaim.claimedAbove(preparedTarget)
+            if (!handled || !validGeometry() || claimed) clear() else activatePreparedPress()
             return handled
         }
 
@@ -306,6 +308,19 @@ internal class ElasticInteractionController(
         if (continuing) {
             stopFrames()
             path.clear()
+            // 续按落在同一形变组的另一个子 View 上时：旧高亮按旧控件的尺寸/轮廓建着、
+            // 还挂在旧 host 的 overlay 里，直接复用会让新控件没有按压高亮、旧控件
+            // 残留 Drawable 且持有 GlowState。命中控件变了就摘旧挂新。
+            val previousHost = highlightHost
+            if (previousHost !== null && previousHost !== view) {
+                previousHost.removeOnAttachStateChangeListener(targetAttachListener)
+                if (highlightAttached) {
+                    highlight?.let(previousHost.overlay::remove)
+                    highlightAttached = false
+                }
+                highlight = TouchHighlight(view, density, highlightColor)
+                view.addOnAttachStateChangeListener(targetAttachListener)
+            }
         } else {
             removeVisual(restore = true, releaseLease = true)
             leases.owner(group)?.relinquish(group)

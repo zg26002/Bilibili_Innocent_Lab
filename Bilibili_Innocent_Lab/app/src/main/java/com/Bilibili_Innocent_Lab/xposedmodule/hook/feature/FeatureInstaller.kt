@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
@@ -80,7 +81,9 @@ internal data class HookEnvironment(
     /** 安装器结束后上报一次结构化结果；诊断异常不能反向影响 Hook 安装链。 */
     val installationEvidence: ((FeatureInstallRecord) -> Unit)? = null,
     val capabilityEvidence: ((String, FeatureInstallResult) -> Unit)? = null,
-    val runtimePhase: (() -> Boolean)? = null
+    val runtimePhase: (() -> Boolean)? = null,
+    /** 当前宿主的 Application Context；仅供需要在宿主 UI 生命周期上工作的功能使用。 */
+    val hostContext: Context? = null
 )
 
 internal sealed interface FeatureInstallResult {

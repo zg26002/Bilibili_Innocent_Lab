@@ -10,9 +10,10 @@ import android.widget.TextView
 import android.widget.Toast
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.AtomicJsonCache
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistAttemptGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistCandidateSelector
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistRequest
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexSourceFingerprint
@@ -75,6 +76,10 @@ object VersionAdapter {
      * 此文件承担「适配完成后快路径」的载体）。
      */
     private fun cacheFile(): java.io.File = TargetAppStorage.cacheFile("innocent_lab_adapt.json")
+
+    /** DexKit 查询进行中的标记，见 [DexAssistAttemptGuard]。 */
+    private fun dexAssistMarkerFile(): java.io.File =
+        TargetAppStorage.cacheFile("innocent_lab_dex_assist.pending")
 
     private fun writeCache(result: AdaptResult): Boolean {
         val payload = result.toJson().toString()
@@ -162,6 +167,7 @@ object VersionAdapter {
     private const val DEX_ASSIST_ID_PREFIX = "dex.assist"
     private const val DEX_ASSIST_BLOCK_UPDATE_ID = DEX_ASSIST_ID_PREFIX
     private const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = "$DEX_ASSIST_ID_PREFIX.comment_topology"
+    private const val DEX_ASSIST_PLAYER_QUALITY_ID = "$DEX_ASSIST_ID_PREFIX.player_quality"
     private const val DEX_SOURCE_UNAVAILABLE = "unavailable"
     private val DEX_SOURCE_FINGERPRINT_PATTERN =
         Regex("^dex-v1:[1-9][0-9]*:[0-9a-f]{64}$")
@@ -2240,6 +2246,11 @@ object VersionAdapter {
 
     private val COMMENT_HIGH_CANDIDATES = listOf(
         "com.bilibili.app.comment3.ui.nextholderexp3.handle.CommentNextExperiment3ContentRichTextHandler",
+        // nextholder 管线（9.13.0 实测生效族）：DeviceDecision 开关
+        // `comment.next_appearance` 命中时 adapter.a.onCreateViewHolder 选 il.* 族；
+        // 绑定方法 b(Zk.Q)/c(Zk.Q)，字段 h 存 CommentItem——与 exp3 结构同构，
+        // 特征定位可覆盖。
+        "com.bilibili.app.comment3.ui.nextholder.handle.CommentNextContentRichTextHandler",
         // 8.63.0 及同类早期版本：非混淆 handler（绑定方法 G(CommentItem, jv.u, v0, r, int)，
         // 字段 h 存 CommentItem——特征定位自动覆盖，候选仅提供类名入口）
         "com.bilibili.app.comment3.ui.holder.handle.CommentContentRichTextHandler"
@@ -2320,6 +2331,16 @@ object VersionAdapter {
     private const val DYNAMIC_MEDIATOR_TAB_CLASS =
         "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
+        // 9.14.0(9140200)：更新链搬到 Dr1.*。Dr1.c#a(Context) 的方法体常量
+        // 'Do sync http request.' / 'fawkes.update.info.supplier' /
+        // 'Nothing to update, clean caches.' 的偏移（0000 / 0002 / 00ed）与 9.13.0 的
+        // ar1.c 逐字节位置相同，是网络边界；同签名的 Dr1.a 是缓存/回退包装层，
+        // 沿用"包装层不进候选"的纪律。30 个不同 SHA 的宿主样本里，没有一个旧宿主
+        // 满足 Dr1.c 的新入口签名（碰撞矩阵 Temp/host-compat/intake-9.14.0-9140200）。
+        "Dr1.c",
+        // 9.13.0(9130300)：ar1.c 执行 FORCE_NETWORK 请求并写 UpdateApk 缓存；
+        // 同签名的 ar1.a 只是缓存/回退包装层，不作为网络 Hook 边界。
+        "ar1.c",
         // 9.11.0 → 9.1.0/9.1.1；再到 8.99.0 → 8.84.0。每个 owner 仍须通过
         // 精确 (Context) -> BiliUpgradeInfo 签名和叶子实现筛选，类名存在本身不算命中。
         //
@@ -2557,6 +2578,14 @@ object VersionAdapter {
         "tv.danmaku.p9138bili.p9228ui.main2.widget.TabHost"
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
+        // 9.14.0(9140200)：实现搬到 ut1.h#a()I。方法体同时含 'quality settings:'
+        // （偏移 0x25）与 ' defaultQuality:32 isLogin:'（0x27），与 9.13.0 的 Rs1.j 位置相同；
+        // 全类只有这一个 static a()I，owner 内唯一性天然成立。同版本里
+        // PlayerSettingHelper#getSettingsQuality 也带偏好键但只读偏好，仍是反例，不选。
+        "ut1.h",
+        // 9.13.0(9130300)：Rs1.j#a()I 读取画质偏好、应用登录/能力限制，
+        // 并记录 quality settings；不是只读偏好的 getSettingsQuality。
+        "Rs1.j",
         // 新版 dex 可能保留旧混淆类，因此按新→旧探测；每个 owner 内仍要求唯一的
         // 无参 Int 入口。8.84.0–9.12.0 均由
         // "quality settings:" / 画质偏好键的离线方法体语义交叉核验。
@@ -2583,8 +2612,19 @@ object VersionAdapter {
         "hd1.h", "zc1.h", "dm6.h", "zh6.h", "gh6.h",
         "tg6.h", "hg6.h",
         // 8.84.0–8.87.0 的稳定公开入口；放在最后，避免新版残留包装器抢先命中。
-        "com.bilibili.playerbizcommon.utils.PlayerSettingHelper"
+        PLAYER_QUALITY_LEGACY_HELPER_CLASS
     )
+    /**
+     * 8.84.0–8.87.0 的真实实现；8.88.0 起只是转发到混淆实现的包装层，但类名与 `getDefaultQuality()`
+     * 一直保留。模块落后宿主、混淆候选全部落空时，候选表会"成功"落到它上面——只挂住经它转发的调用。
+     * 因此命中它时仍要跑 DexKit 兜底，并在合并缓存时让兜底结果优先（见 [usesLegacyQualityHelper]）。
+     */
+    private const val PLAYER_QUALITY_LEGACY_HELPER_CLASS =
+        "com.bilibili.playerbizcommon.utils.PlayerSettingHelper"
+
+    internal fun PlayerQualityPoints.usesLegacyQualityHelper(): Boolean =
+        defaultQualityMethod.className == PLAYER_QUALITY_LEGACY_HELPER_CLASS
+
     private val PLAYER_QUALITY_CAPABILITY_SIGNALS = setOf(
         "stream_quality",
         "vip_entitlement",
@@ -2883,7 +2923,10 @@ object VersionAdapter {
             mineAccountMine = runtime.mineAccountMine ?: cached.mineAccountMine,
             storyFeed = runtime.storyFeed ?: cached.storyFeed,
             bottomBar = runtime.bottomBar ?: cached.bottomBar,
-            playerQuality = runtime.playerQuality ?: cached.playerQuality,
+            // 实时定位只落到稳定包装层、而后台 DexKit 已找到真实实现时，用缓存里的实现。
+            playerQuality = cached.playerQuality?.takeIf {
+                runtime.playerQuality?.usesLegacyQualityHelper() == true && !it.usesLegacyQualityHelper()
+            } ?: runtime.playerQuality ?: cached.playerQuality,
             teenagersMode = runtime.teenagersMode ?: cached.teenagersMode,
             commentPurify = runtime.commentPurify ?: cached.commentPurify,
             commentFilter = runtime.commentFilter ?: cached.commentFilter,
@@ -2917,6 +2960,8 @@ object VersionAdapter {
                 .apply()
         }
         runCatching { cacheFile().delete() }
+        // 手动重适配也给上次没查完的 DexKit 一次重试机会。
+        runCatching { dexAssistMarkerFile().delete() }
     }
 
     /**
@@ -3192,6 +3237,11 @@ object VersionAdapter {
                     id = DEX_ASSIST_COMMENT_TOPOLOGY_ID,
                     state = AdaptState.NOT_APPLICABLE,
                     detail = "quick-locate"
+                ),
+                AdaptDiagnostic(
+                    id = DEX_ASSIST_PLAYER_QUALITY_ID,
+                    state = AdaptState.NOT_APPLICABLE,
+                    detail = "quick-locate"
                 )
             )
         )
@@ -3216,8 +3266,29 @@ object VersionAdapter {
         val homeTopBar = locateHomeTopBar(loader)
         val mineVip = locateMineVip(loader)
         val directBlockUpdate = locateBlockUpdate(loader)
+        val directPlayerQuality = locateDefaultVideoQuality(loader)
+        val directTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
+        val playerQualityNeedsAssist = directPlayerQuality == null ||
+            directPlayerQuality.usesLegacyQualityHelper()
+        // 本轮要兜底的点合并成一趟 DEX 查询：每个代码归档只建一次 DexKit 桥。
+        val dexAssist = dexSource?.let { source ->
+            DexAssistSession(
+                engine = DexAssistAttemptGuard(
+                    marker = dexAssistMarkerFile(),
+                    key = buildHostFingerprint(context),
+                    delegate = DexKitAssistEngine
+                ),
+                codePaths = source.codePaths,
+                classLoader = loader,
+                planned = buildSet {
+                    if (directBlockUpdate == null) add(DexAssistQuery.BLOCK_UPDATE)
+                    if (playerQualityNeedsAssist) add(DexAssistQuery.PLAYER_DEFAULT_QUALITY)
+                    if (directTopologyOutcome.points == null) add(DexAssistQuery.COMMENT_REPLY_MAPPER)
+                }
+            )
+        }
         val blockUpdateAssist = if (directBlockUpdate == null) {
-            locateBlockUpdateByDex(loader, dexSource)
+            locateBlockUpdateByDex(loader, dexAssist)
         } else {
             BlockUpdateDexAssist(
                 point = null,
@@ -3243,13 +3314,22 @@ object VersionAdapter {
         val mineAccountMine = locateMineAccountMinePoints(loader)
         val storyFeed = locateStoryFeed(loader)
         val bottomBar = locateBottomBar(loader)
-        val playerQuality = locateDefaultVideoQuality(loader)
+        val playerQualityAssist = if (playerQualityNeedsAssist) {
+            locatePlayerQualityByDex(loader, dexAssist)
+        } else {
+            PlayerQualityDexAssist(
+                method = null,
+                diagnostic = playerQualityAssistDiagnostic(AdaptState.NOT_APPLICABLE, "not-required")
+            )
+        }
+        val playerQuality = playerQualityAssist.method
+            ?.let { locateDefaultVideoQuality(loader, assisted = it) }
+            ?: directPlayerQuality
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
-        val directTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
         val topologyAssist = if (directTopologyOutcome.points == null) {
-            locateCommentTopologyMapperByDex(loader, dexSource)
+            locateCommentTopologyMapperByDex(loader, dexAssist)
         } else {
             CommentTopologyDexAssist(
                 mapperOwners = emptyList(),
@@ -3368,7 +3448,7 @@ object VersionAdapter {
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
             ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic +
-                topologyAssist.diagnostic,
+                topologyAssist.diagnostic + playerQualityAssist.diagnostic,
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE
         )
     }
@@ -4163,9 +4243,9 @@ object VersionAdapter {
      */
     private fun locateBlockUpdateByDex(
         loader: ClassLoader,
-        dexSource: DexSourceFingerprint.Result?
+        dexAssist: DexAssistSession?
     ): BlockUpdateDexAssist {
-        val source = dexSource ?: return BlockUpdateDexAssist(
+        val session = dexAssist ?: return BlockUpdateDexAssist(
             point = null,
             diagnostic = AdaptDiagnostic(
                 id = DEX_ASSIST_BLOCK_UPDATE_ID,
@@ -4182,13 +4262,7 @@ object VersionAdapter {
                     detail = "block-update:return-type-missing"
                 )
             )
-        return when (val result = DexKitAssistEngine.resolve(
-            DexAssistRequest(
-                query = DexAssistQuery.BLOCK_UPDATE,
-                codePaths = source.codePaths,
-                classLoader = loader
-            )
-        )) {
+        return when (val result = session.result(DexAssistQuery.BLOCK_UPDATE)) {
             is DexAssistResult.Candidates -> {
                 val verified = result.methods.filter { method ->
                     !method.isStatic && !method.isAbstract &&
@@ -4221,6 +4295,49 @@ object VersionAdapter {
         }
     }
 
+    private data class PlayerQualityDexAssist(
+        val method: Method?,
+        val diagnostic: AdaptDiagnostic
+    )
+
+    private fun playerQualityAssistDiagnostic(state: AdaptState, detail: String): AdaptDiagnostic =
+        AdaptDiagnostic(id = DEX_ASSIST_PLAYER_QUALITY_ID, state = state, detail = "player-quality:$detail")
+
+    /**
+     * 混淆候选全部落空（或只落到稳定包装层）时，按"`()I` + 方法体常量 `quality settings:`"全 DEX 查询
+     * 默认画质实现。结果由宿主 ClassLoader 解析并复核签名，不唯一按缺失处理。
+     */
+    private fun locatePlayerQualityByDex(
+        loader: ClassLoader,
+        dexAssist: DexAssistSession?
+    ): PlayerQualityDexAssist {
+        val session = dexAssist ?: return PlayerQualityDexAssist(
+            method = null,
+            diagnostic = playerQualityAssistDiagnostic(AdaptState.MISSING, "no-dex-source")
+        )
+        return when (val result = session.result(DexAssistQuery.PLAYER_DEFAULT_QUALITY)) {
+            is DexAssistResult.Candidates -> {
+                val verified = result.methods.filter { method ->
+                    !method.isAbstract && method.parameterCount == 0 &&
+                        method.returnType == classOf<Int>()
+                }
+                val selected = verified.distinctBy(Method::toGenericString).singleOrNull()
+                PlayerQualityDexAssist(
+                    method = selected,
+                    diagnostic = playerQualityAssistDiagnostic(
+                        state = if (selected != null) AdaptState.FOUND else AdaptState.MISSING,
+                        detail = selected?.toHookPoint()?.label() ?: "ambiguous:${verified.size}"
+                    )
+                )
+            }
+
+            is DexAssistResult.Unavailable -> PlayerQualityDexAssist(
+                method = null,
+                diagnostic = playerQualityAssistDiagnostic(AdaptState.MISSING, result.reason.name.lowercase())
+            )
+        }
+    }
+
     private data class CommentTopologyDexAssist(
         val mapperOwners: List<Class<*>>,
         val diagnostic: AdaptDiagnostic
@@ -4245,9 +4362,9 @@ object VersionAdapter {
      */
     private fun locateCommentTopologyMapperByDex(
         loader: ClassLoader,
-        dexSource: DexSourceFingerprint.Result?
+        dexAssist: DexAssistSession?
     ): CommentTopologyDexAssist {
-        val source = dexSource ?: return CommentTopologyDexAssist(
+        val session = dexAssist ?: return CommentTopologyDexAssist(
             mapperOwners = emptyList(),
             diagnostic = commentTopologyAssistDiagnostic(AdaptState.MISSING, "no-dex-source")
         )
@@ -4265,13 +4382,7 @@ object VersionAdapter {
                     "comment-item-missing"
                 )
             )
-        return when (val result = DexKitAssistEngine.resolve(
-            DexAssistRequest(
-                query = DexAssistQuery.COMMENT_REPLY_MAPPER,
-                codePaths = source.codePaths,
-                classLoader = loader
-            )
-        )) {
+        return when (val result = session.result(DexAssistQuery.COMMENT_REPLY_MAPPER)) {
             is DexAssistResult.Candidates -> {
                 val verified = result.methods.filter { method ->
                     method.isStatic && !method.isAbstract && !method.isSynthetic &&
@@ -5729,8 +5840,12 @@ object VersionAdapter {
      * 运行期按新到旧候选探测，并要求单个 owner 内只有一个无参 Int 入口；这样既避开
      * 新版 dex 对旧混淆类的残留引用，也不会按宽泛方法名跨类批量安装。
      */
-    fun locateDefaultVideoQuality(loader: ClassLoader): PlayerQualityPoints? = runCatching {
-        val defaultMethod = PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
+    fun locateDefaultVideoQuality(
+        loader: ClassLoader,
+        /** 后台 DexKit 兜底找到的实现；给了就不再查候选表。 */
+        assisted: Method? = null
+    ): PlayerQualityPoints? = runCatching {
+        val defaultMethod = assisted ?: PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
             val owner = KavaMemberLookup.classOrNull(loader, ownerName)
                 ?: return@firstNotNullOfOrNull null
             KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
@@ -6347,9 +6462,11 @@ object VersionAdapter {
             .distinctBy(Method::toGenericString)
             .map { it.toHookPoint() }
             .toList()
+        // 空判据必须与 isStructurallyValid 的有效口径一致：urlSchemaGetters 是搜索跳转
+        // 第二道防线的唯一载体，只算它就足够让整组点成立，漏掉会把可用的防线整条丢弃。
         if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
             followPoints == null && qoePoint == null && operationPoints.isEmpty() &&
-            quickReplyDialogMethods.isEmpty()) {
+            quickReplyDialogMethods.isEmpty() && urlSchemaGetters.isEmpty()) {
             null
         } else {
             CommentPurifyPoints(

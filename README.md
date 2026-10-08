@@ -2,7 +2,7 @@
 
 <img src="banner.svg" alt="Bilibili Innocent Lab" width="100%">
 
-[![稳定版](https://img.shields.io/github/v/release/jichuo1/Bilibili_Innocent_Lab?style=flat-square&color=FB7299&label=%E7%A8%B3%E5%AE%9A%E7%89%88)](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases)
+[![稳定版](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjichuo1%2FBilibili_Innocent_Lab%2Fbadges%2Fstable.json&style=flat-square)](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases/latest)
 [![License](https://img.shields.io/github/license/jichuo1/Bilibili_Innocent_Lab?style=flat-square&color=00AEEC)](LICENSE)
 [![平台](https://img.shields.io/badge/Android-8.1%2B-2d3a55?style=flat-square&labelColor=2d3a55)](#环境要求)
 [![框架](https://img.shields.io/badge/Xposed-LSPosed-00AEEC?style=flat-square&labelColor=2d3a55)](#环境要求)
@@ -174,6 +174,7 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 | 关闭客户端更新提醒 | 阻止哔哩哔哩客户端自身的更新提醒，不影响本模块检查 Stable 或 Preview 更新 |
 | 关闭青少年模式提醒 | 隐藏青少年模式提示页面，不修改青少年模式的开启状态、限制规则或系统设置 |
 | 显示完整数字 | 播放量、点赞数等计数优先显示完整数值，减少“万”“亿”等缩写；只处理已经适配的数字格式化入口 |
+| 视频卡片悬浮美化 | 使用凝光引擎的轻量柔光卡片材质，为视频封面增加圆角和极淡灰色柔影，增大双列间距及屏幕边缘留白；圆角可保留默认或自定义为 0–40dp（0 为直角）；位于增强进阶设置，默认关闭，重启宿主后生效 |
 | 视频号显示为 AV 号 | 哔哩哔哩在同一处出口二选一地展示 AV 号或 BV 号，开启后固定显示 AV 号；正文里的 BV 链接仍可识别和点击 |
 
 #### 分享
@@ -350,7 +351,7 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 | 目标应用 | 官方 Android 哔哩哔哩，包名 `tv.danmaku.bili` |
 | 模块框架 | Xposed / LSPosed 兼容环境 |
 | 应用多开 | 仅支持**包名仍为 `tv.danmaku.bili`** 的系统级多用户 / 应用双开 / 工作资料；不支持改包名的克隆与 VirtualApp 类容器多开，详见[多开与多用户](#多开与多用户) |
-| 已验证客户端 | 8.84.0～9.11.0 的主要版本路径 |
+| 已验证客户端 | 8.84.0～9.14.0 的主要版本路径 |
 | 漫游扩展 | 需要用户另行安装并启用兼容的哔哩漫游版本 |
 | 预见式返回 | Android 14～15 提供开关；Android 16 及以上由系统强制启用，设置中不再显示该开关 |
 
@@ -473,21 +474,39 @@ Windows PowerShell：
 
 ```powershell
 cd Bilibili_Innocent_Lab
-.\gradlew.bat assembleDebug --console=plain --no-daemon
+.\gradlew.bat assembleDebug --console=plain --daemon
 ```
 
 Linux / macOS：
 
 ```bash
 cd Bilibili_Innocent_Lab
-./gradlew assembleDebug --console=plain --no-daemon
+./gradlew assembleDebug --console=plain --daemon
 ```
 
 **运行 JVM 单元测试**
 
 ```powershell
-.\gradlew.bat testDebugUnitTest --console=plain --no-daemon
+.\gradlew.bat testDebugUnitTest --console=plain --daemon
 ```
+
+**运行 Lint**
+
+日常迭代使用快速检查：
+
+```powershell
+.\gradlew.bat :app:lintFast --console=plain --daemon
+```
+
+快速检查仅跳过明确列出的 32 条 BetterAndroid / KavaRef API 替换建议，仍检查测试源码并保留 Android 正确性、权限、API 兼容性和 Hikage 规则。它不是完整门禁；提交前和 CI 使用完整检查：
+
+```powershell
+.\gradlew.bat :app:lintDebug --console=plain --daemon
+```
+
+快速报告保存到 `app/build/reports/lint/fast/`，完整报告保存到 `app/build/reports/lint/full/`，HTML 文件均为 `lint-results-debug.html`。使用完整任务名；`lintFast` 仅允许与 `assembleDebug`、`assembleDebugAndroidTest`、`testDebugUnitTest` 同时运行，其他任务和完整门禁分开执行。Linux / macOS 使用 `./gradlew` 执行相同任务。
+
+保持相同 JDK 和 JVM 参数可复用 Gradle 守护进程与任务缓存；日常构建不必执行 `clean`。缓存完整时可添加 `--offline`；受限环境无法建立本地进程通信时再改用 `--no-daemon`。
 
 **产物校验**
 
@@ -760,6 +779,7 @@ SPDX-License-Identifier: GPL-3.0-only
 
 - [YukiHookAPI](https://github.com/HighCapable/YukiHookAPI)
 - [KavaRef](https://github.com/HighCapable/KavaRef)
+- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine)（视频卡片柔光材质，Apache-2.0）
 - [BBZQ](https://github.com/HSSkyBoy/BBZQ)
 - Xposed / LSPosed 社区
 - Android 开源项目与相关开发文档

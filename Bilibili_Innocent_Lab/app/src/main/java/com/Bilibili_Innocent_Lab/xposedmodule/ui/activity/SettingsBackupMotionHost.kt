@@ -19,6 +19,8 @@ import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidMotionSurfaceFrameProvider
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import kotlin.math.abs
@@ -150,6 +152,19 @@ internal class SettingsBackupMotionHost(
 
     var onWindowSizeChangedDuringMotion: (() -> Unit)? = null
 
+    /**
+     * 正文被平移/缩放后回调。父层 translation 不会让子 View 重录，玻璃卡片会一直按录制时的
+     * 屏幕位置采样背景；动画结束后等抑制解除整组重录才对齐，卡片内部颜色一跳（2026-09-24
+     * 真机逐帧：两张卡片反向变色 4～5 级，背景不变）。宿主 Activity 接到皮肤的位移通知上。
+     */
+    var onContentMoved: (() -> Unit)? = null
+
+    private fun View.notifyIfMoved(beforeY: Float, beforeScaleX: Float, beforeScaleY: Float) {
+        if (translationY != beforeY || scaleX != beforeScaleX || scaleY != beforeScaleY) {
+            onContentMoved?.invoke()
+        }
+    }
+
     init {
         clipChildren = false
         clipToPadding = false
@@ -184,6 +199,20 @@ internal class SettingsBackupMotionHost(
 
     /** 皮肤背景绑定到该层；其父容器始终跟随形变 surface 裁剪。 */
     fun liquidBackdropRoot(): View = backdropRoot
+
+    /** 在 setContentView 后接管默认的根 padding，让系统栏区域也由同一背景绘制。 */
+    fun installContentInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            // 只缩进内容；背景、形变轮廓和标题代理保持全窗口坐标。
+            setPadding(0, 0, 0, 0)
+            pageClip.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(this)
+    }
 
     /** Both skin renderers read this View's live motion bounds, radius and fallback color. */
     fun setMotionSurfaceBackground(background: Drawable?) {
@@ -280,8 +309,14 @@ internal class SettingsBackupMotionHost(
         )
 
         currentPage?.apply {
+            val beforeY = translationY
             alpha = motionFrame.contentAlpha
-            translationY = motionFrame.contentTranslationYPx
+            // 正文钉在形变框顶部随框移动：框里始终是页面顶部的连续画面，而不是被缩小的
+            // 轮廓从页面中段裁出的一截（2026-09-24 用户报告"中间两个画面割断"）。只平移不缩放，
+            // 玻璃卡片按屏幕位置采样背景，平移后仍与背景对齐。
+            translationY = motionFrame.contentTranslationYPx +
+                (motionFrame.top - geometry.expandedBounds.top)
+            notifyIfMoved(beforeY, scaleX, scaleY)
         }
 
         val sourceTakeoverAlpha = SettingsBackupMotionSpec.smoothStep(0.02f, 0.14f, clamped)
@@ -349,12 +384,16 @@ internal class SettingsBackupMotionHost(
         surface.alpha = clamped
         pageClip.clearMotionOutline()
         currentPage?.apply {
+            val beforeY = translationY
+            val beforeScaleX = scaleX
+            val beforeScaleY = scaleY
             alpha = contentFraction
             translationY = (1f - contentFraction) * contentTravelPx
             pivotX = width / 2f
             pivotY = height / 2f
             scaleX = 0.985f + 0.015f * clamped
             scaleY = 0.985f + 0.015f * clamped
+            notifyIfMoved(beforeY, beforeScaleX, beforeScaleY)
         }
         currentToolbarTitle?.alpha = 1f
         transitionTitle.visibility = View.INVISIBLE
@@ -380,10 +419,14 @@ internal class SettingsBackupMotionHost(
         surface.alpha = 1f
         pageClip.clearMotionOutline()
         currentPage?.apply {
+            val beforeY = translationY
+            val beforeScaleX = scaleX
+            val beforeScaleY = scaleY
             alpha = 1f
             translationY = 0f
             scaleX = 1f
             scaleY = 1f
+            notifyIfMoved(beforeY, beforeScaleX, beforeScaleY)
         }
         currentToolbarTitle?.alpha = 1f
         transitionTitle.apply {

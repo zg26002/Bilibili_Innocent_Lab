@@ -26,6 +26,7 @@ internal data class DiagnosticFeatureDescriptor(
 /** 宿主协议、诊断页面和报告共同使用的唯一功能 ID 白名单。 */
 internal object DiagnosticFeatureRegistry {
     private val groups: List<DiagnosticFeatureDescriptor> = listOf(
+        DiagnosticFeatureDescriptor("host_video_cards", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("search_home_recommend_hidden", DiagnosticFeatureCategory.HOME_AND_DYNAMIC, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("paused_ad", DiagnosticFeatureCategory.ADVERTISING),
         DiagnosticFeatureDescriptor("game_mentioned_promotion", DiagnosticFeatureCategory.ADVERTISING),
@@ -58,6 +59,8 @@ internal object DiagnosticFeatureRegistry {
         DiagnosticFeatureDescriptor("home_component_filter", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
         DiagnosticFeatureDescriptor("bottom_bar", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
         DiagnosticFeatureDescriptor("story_purify", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
+        DiagnosticFeatureDescriptor("story_action_icons", DiagnosticFeatureCategory.HOME_AND_DYNAMIC,
+            runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("dynamic_tabs_purify", DiagnosticFeatureCategory.HOME_AND_DYNAMIC),
         DiagnosticFeatureDescriptor(
             "dynamic_purify",
@@ -98,6 +101,8 @@ internal object DiagnosticFeatureRegistry {
             runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("player_speed", DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true),
+        DiagnosticFeatureDescriptor("player_sponsor_block", DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor(
             "danmaku_purify",
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
@@ -135,6 +140,12 @@ internal object DiagnosticFeatureRegistry {
         // 这是 detail_module_purify 那五项的正确落点，两者互为保底。
         DiagnosticFeatureDescriptor(
             "detail_united_module_purify",
+            DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
+            runtimeEvidenceExpected = true
+        ),
+        // 同一对 ViewMoss 方法上的另一个安装器：只改 ecode/ecode_config 与相关推荐卡。
+        DiagnosticFeatureDescriptor(
+            "ai_declared_video_block",
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true
         ),
@@ -184,6 +195,8 @@ internal object DiagnosticFeatureRegistry {
             DiagnosticFeatureCategory.GENERAL,
             runtimeEvidenceExpected = true
         ),
+        DiagnosticFeatureDescriptor("brand_splash_skip", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
+        DiagnosticFeatureDescriptor("brand_splash_custom", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor(
             "bv_to_av",
             DiagnosticFeatureCategory.GENERAL,

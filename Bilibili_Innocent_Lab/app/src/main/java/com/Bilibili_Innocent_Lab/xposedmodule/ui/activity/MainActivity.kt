@@ -99,6 +99,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.RoamingCompatHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailModulePurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ComponentLibraryPoolMatcher
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryActionIcon
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
@@ -196,6 +198,7 @@ class MainActivity : SkinnedActivity() {
         /** 各渠道独立的成功检查时间，避免切换渠道后 24 小时节流误跳过新渠道检查。 */
         const val PREF_LAST_CHECK_STABLE = "last_successful_check_ms_stable"
         const val PREF_LAST_CHECK_PREVIEW = "last_successful_check_ms_preview"
+        const val PREF_LAST_CHECK_CANARY = "last_successful_check_ms_canary"
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
         const val MINE_COMPONENT_SNAPSHOT_STALE_MS = 7L * 24L * 60L * 60L * 1_000L
         const val SETTINGS_SEARCH_HIGHLIGHT_DELAY_MS = 240L
@@ -256,6 +259,30 @@ class MainActivity : SkinnedActivity() {
         if (uri != null) importLiquidBackground(uri)
     }
 
+    internal val liquidBackgroundPhotoPicker = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let(::importLiquidBackground)
+    }
+
+    internal val liquidBackgroundGalleryPicker = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) importLiquidBackground(uri)
+    }
+
+    internal val liquidBackgroundGalleryPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            launchLiquidBackgroundGallery(afterGrant = true)
+        } else {
+            toast(getString(R.string.liquid_background_gallery_permission_denied))
+            launchLiquidBackgroundDocumentPicker()
+        }
+    }
+
     private var adskipEnabled = true
     private var gamecardAdEnabled = true
     private var hideVideoDetailAppPromotion = false
@@ -273,6 +300,17 @@ class MainActivity : SkinnedActivity() {
     private var homeRecommendBlockedTids = ""
     private var homeRecommendBlockedAuthors = ""
     private var homeRecommendSectionPickEnabled = false
+    private var blockAiDeclaredVideos = false
+    internal var blockAiDeclaredVideosStrongMode = false
+    /** 强力模式 · 获取 access_key（推荐预检）的用户意图；实际生效还要通用授权。 */
+    internal var blockAiDeclaredVideosPrecheck = false
+    internal var aiStrongModeEntry: View? = null
+    internal var aiStrongModeSummaryView: NativeTextView? = null
+    internal fun isBlockAiDeclaredVideosEnabled(): Boolean = blockAiDeclaredVideos
+    /** 实验性兼容「获取 access_key」授权；强力模式以它为前提。 */
+    internal var biliAccessKeyAuthorized = false
+    internal var biliAccessKeySwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
+    internal var biliAccessKeyProgrammaticSwitch = false
     private var videoRelateBlockedAuthors = ""
     private var videoRelateBlockedTags = ""
     internal var removeHomeRecommendLive = false
@@ -349,6 +387,7 @@ class MainActivity : SkinnedActivity() {
     private var playerDisableLongPress = false
     internal var playerLongPressSpeedPercent = 0
     internal var playerDefaultSpeedPercent = 0
+    private var playerSponsorBlockEnabled = false
     private var blockTeenagersModePrompt = false
     private var removeCommentSearchLinks = false
     private var removeCommentEmptyGuide = false
@@ -364,6 +403,11 @@ class MainActivity : SkinnedActivity() {
     private var commentMinLevelFilterEnabled = false
     internal var commentMinLevel = CommentFilterFeatureInstaller.DEFAULT_MIN_LEVEL
     private var dynamicKeywordFilterEnabled = false
+    private var semanticJevSummaryView: NativeTextView? = null
+    private var dynamicSemanticFilterEnabled = false
+    private var danmakuSemanticFilterEnabled = false
+    private var commentSemanticFilterEnabled = false
+    private var videoSemanticFilterEnabled = false
     private var dynamicFilterKeywords = ""
     private var dynamicAuthorFilterEnabled = false
     private var dynamicAuthorFilterRules = ""
@@ -391,12 +435,22 @@ class MainActivity : SkinnedActivity() {
     private var forceExternalBrowser = false
     private var systemMediaNotification = false
     private var splashAutoNight = false
+    private var brandSplashSkip = false
+    private var brandSplashCustom = false
     private var showBvAsAv = false
     private var purifySplashAds = false
     private var freeCopyEnabled = true
     private var freeCopyDescEnabled = true
     private var freeCopyLightMode = false
     private var freeCopyAutoLight = false
+    internal var hostBottomBarLiquidGlass = false
+    internal var hostBottomBarTouchGlow = false
+    internal var hostVideoCards = false
+    internal var hostVideoCardRadiusDp = -1
+    internal var hostBottomBarCompact = false
+    internal var hostBottomBarIconOnly = false
+    internal var hostTopBarLiquidGlass = false
+    internal var hostTopBarTouchGlow = false
 
     /** 亮色开关二次确认进行中标志（防 setOnCheckedChangeListener 重入递归） */
     private var autoLightConfirmInProgress = false
@@ -407,7 +461,7 @@ class MainActivity : SkinnedActivity() {
     /** 手动亮色开关引用（自由复制区） */
     private var manualLightSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
 
-    /** 自动跟随开关引用（增强栏的复制气泡外观） */
+    /** 自动跟随开关引用（美化栏的复制气泡外观） */
     private var autoLightSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
 
     /** 手动亮色开关下方 tip 引用（动态动画切换文本） */
@@ -442,6 +496,7 @@ class MainActivity : SkinnedActivity() {
     internal var portraitContentFilterSummaryView: NativeTextView? = null
     internal var videoRelateFilterSummaryView: NativeTextView? = null
     internal var detailModuleFilterSummaryView: NativeTextView? = null
+    internal var storyActionIconsSummaryView: NativeTextView? = null
     /** 设置备份入口及标题：用于跨 Activity 容器形变的来源坐标。 */
     private var settingsBackupEntryView: View? = null
     private var settingsBackupEntryTitleView: NativeTextView? = null
@@ -467,6 +522,7 @@ class MainActivity : SkinnedActivity() {
     /** 两个按用途拆分的进阶菜单，沿用同一属性动画。 */
     private var purificationSettingsRoot: View? = null
     private var enhancementSettingsRoot: View? = null
+    private var beautificationSettingsRoot: View? = null
     private var purificationAdvancedContent: View? = null
     private var purificationAdvancedChevron: View? = null
     private var purificationAdvancedExpanded = false
@@ -1164,6 +1220,28 @@ class MainActivity : SkinnedActivity() {
 
     // internal：弹窗正按主题外移到同包的 Dialogs 文件（`internal fun MainActivity.showX()`），
     // 扩展函数拿不到 private 成员。下面几个 create*/present*/dismiss* 是外移弹窗的共用底座。
+    /**
+     * 收起动画的末帧先按时上屏，下一帧再移窗并执行后续回调。
+     *
+     * `dialog.dismiss()` 同步移窗，并在进程共享的 RenderThread 上销毁这个窗口的硬件渲染资源
+     * （玻璃效果层、纹理）。原来它就跑在动画结束回调里，与收拢到底的最后一帧挤在同一帧：
+     * 2026-09-24 atrace（9 次开关）关闭末帧 `notifyAnimEnd` 7–11ms，偶发紧接两帧
+     * `dequeueBuffer` 15–18ms。推迟一帧后，这段开销落在画面静止的帧里；末帧已收拢到 0、
+     * 窗口动画已关（setWindowAnimations(0)），推迟期间屏幕上没有可见内容。
+     */
+    private fun dismissAfterFinalFrame(dialog: Dialog, then: () -> Unit) {
+        val decor = dialog.window?.decorView
+        val finish = {
+            if (dialog.isShowing) runCatching { dialog.dismiss() }
+            then()
+        }
+        if (decor == null || !decor.isAttachedToWindow || isFinishing || isDestroyed) {
+            finish()
+        } else {
+            decor.postOnAnimation { finish() }
+        }
+    }
+
     internal fun dismissWithAnimation(
         dialog: Dialog,
         container: View,
@@ -1175,7 +1253,11 @@ class MainActivity : SkinnedActivity() {
             .setDuration(180L)
             .setInterpolator(emphasizedAccelerate)
             // 背板压暗层随卡片淡出：锚点路径由 controller 的 onFrame 自己推进度，不走这里。
-            .setUpdateListener { dialogScrims[dialog]?.alpha = container.alpha }
+            // 缩放会移动卡片里的玻璃表面，逐帧通知皮肤按新位置重新采样（见入场处注释）。
+            .setUpdateListener {
+                dialogScrims[dialog]?.alpha = container.alpha
+                notifyPreparedSkinPositionChanged()
+            }
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     dialog.dismiss()
@@ -1194,7 +1276,10 @@ class MainActivity : SkinnedActivity() {
      *
      * @param cornerRadiusDp 涟漪 mask 圆角：行级条目用小圆角，圆形图标按钮传半径（宽高一半）
      */
-    internal fun selfRippleBackground(cornerRadiusDp: Float = 10f): RippleDrawable {
+    /** 浅色主题的白色涟漪不透明度：玻璃表面约 226–230，按下提亮到约 243。 */
+    private val LIGHT_THEME_RIPPLE_ALPHA = 0x8C
+
+    internal fun selfRippleBackground(cornerRadiusDp: Float = 10f): CoverableRippleDrawable {
         val density = resources.displayMetrics.density
         // 局部 val 不能命名为 cornerRadius：同名会遮蔽 GradientDrawable 的 setCornerRadius
         // 属性，apply 块里给它赋值会报 "'val' cannot be reassigned"。
@@ -1212,11 +1297,16 @@ class MainActivity : SkinnedActivity() {
             cornerRadius = radiusPx
             setColor(Color.WHITE)
         }
-        return RippleDrawable(
-            ColorStateList.valueOf(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x30)),
-            content,
-            mask
-        )
+        // 涟漪色随主题：深色沿用浅灰提亮；浅色改用白色提亮。原来两种主题都取 colorTextGray，
+        // 浅色下它是深灰 #323B42，展开/收起条目按下时先冒出一团灰黑光斑、再铺成整行灰底，
+        // 读作"动画开始/结束时压了一层黑色遮罩"（2026-09-24 用户报告，真机录屏确认是涟漪）。
+        val darkTheme = ColorUtils.calculateLuminance(monetColors.surface) < 0.5
+        val rippleColor = if (darkTheme) {
+            ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x30)
+        } else {
+            ColorUtils.setAlphaComponent(Color.WHITE, LIGHT_THEME_RIPPLE_ALPHA)
+        }
+        return CoverableRippleDrawable(rippleColor, content, mask)
     }
 
     internal fun renderPendingTermsUi(snapshot: UserTermsAuthorizationSnapshot) {
@@ -1544,6 +1634,13 @@ class MainActivity : SkinnedActivity() {
         onClick = onClick
     )
 
+    /**
+     * 可滑动的选中面：与 [createGitHubMenuRow] 高亮行同一套皮肤选中背景，但独立成一个 View，
+     * 供单选列表把"选中框"从旧项平移到新项（见 JEV 灵敏度面板）。
+     */
+    internal fun createSelectionIndicator(radiusDp: Float = 14f): View =
+        View(this).also { skinSelectionControl(it, radiusDp, selected = true) }
+
     internal fun createGitHubMenuRow(
         title: CharSequence,
         subtitle: CharSequence,
@@ -1857,21 +1954,25 @@ class MainActivity : SkinnedActivity() {
             if (prefs.contains(PREF_LAST_CHECK_STABLE)) PREF_LAST_CHECK_STABLE
             else PREF_LAST_SUCCESSFUL_UPDATE_CHECK
         GitHubReleaseChecker.UpdateChannel.PREVIEW -> PREF_LAST_CHECK_PREVIEW
+        GitHubReleaseChecker.UpdateChannel.CANARY -> PREF_LAST_CHECK_CANARY
     }
 
     private fun checkingToastRes(channel: GitHubReleaseChecker.UpdateChannel): Int = when (channel) {
         GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_checking_stable
         GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_checking_preview
+        GitHubReleaseChecker.UpdateChannel.CANARY -> R.string.update_checking_canary
     }
 
     private fun latestToastRes(channel: GitHubReleaseChecker.UpdateChannel): Int = when (channel) {
         GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_latest_stable
         GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_latest_preview
+        GitHubReleaseChecker.UpdateChannel.CANARY -> R.string.update_latest_canary
     }
 
     private fun failedToastRes(channel: GitHubReleaseChecker.UpdateChannel): Int = when (channel) {
         GitHubReleaseChecker.UpdateChannel.STABLE -> R.string.update_check_failed_stable
         GitHubReleaseChecker.UpdateChannel.PREVIEW -> R.string.update_check_failed_preview
+        GitHubReleaseChecker.UpdateChannel.CANARY -> R.string.update_check_failed_canary
     }
 
     /**
@@ -1969,7 +2070,7 @@ class MainActivity : SkinnedActivity() {
         release: GitHubReleaseChecker.ReleaseInfo,
         manual: Boolean
     ) {
-        when (GitHubReleaseChecker.compareVersions(release.tagName, BuildConfig.VERSION_NAME)) {
+        when (GitHubReleaseChecker.compareVersions(release.tagName, BuildConfig.VERSION_NAME, channel)) {
             GitHubReleaseChecker.VersionRelation.REMOTE_NEWER -> {
                 renderUpdateBadge()
                 if (manual) showUpdateDialogWhenIdle(channel, release)
@@ -2000,6 +2101,26 @@ class MainActivity : SkinnedActivity() {
     /** 弹窗背板压暗色（40% 黑）：比 UiTokens.scrim 略重，底页文字不会透过模态面板与内容混排。 */
     private val MODAL_SCRIM_COLOR = 0x66000000.toInt()
 
+    /** 浅色主题背板：背景色压暗 8% 后 50% 不透明的浅色薄纱。 */
+    private val LIGHT_MODAL_SCRIM_DARKEN = 0.08f
+    private val LIGHT_MODAL_SCRIM_ALPHA = 0x80
+
+    /**
+     * 弹窗背板颜色随主题。深色沿用 40% 黑；浅色改为浅色薄纱。
+     *
+     * 2026-09-24 用户报告浅色下形变动画"深色"：背板按进度整屏淡入，而面板从按钮/行里逐渐长出，
+     * 面板最终区域在没被盖满前透出的是已压暗的底页，比打开前和打开后都暗（真机：该区域
+     * 175–190，首尾约 224）。40% 黑是按深色主题定的，深色底上看不出；浅色底上就是一块跟着
+     * 形变伸缩的暗区。薄纱把底页文字对比压下来（文字约 50 → 137，背景基本不变），可读性目的
+     * 不变，形变过程中未覆盖区域不再变暗。
+     */
+    private fun modalScrimColor(): Int =
+        if (ColorUtils.calculateLuminance(monetColors.surface) < 0.5) MODAL_SCRIM_COLOR
+        else ColorUtils.setAlphaComponent(
+            ColorUtils.blendARGB(monetColors.background, Color.BLACK, LIGHT_MODAL_SCRIM_DARKEN),
+            LIGHT_MODAL_SCRIM_ALPHA
+        )
+
     /** 正文起始位移上限（每轴）。够看出"从锚点方向飞来"，又不至于让长卡片整体晃动。 */
     private val CONTENT_TRAVEL_CAP_DP = 20f
 
@@ -2020,7 +2141,7 @@ class MainActivity : SkinnedActivity() {
     internal enum class AnchorStyle { CONTAINER, BUBBLE }
 
     /** 只使用当前可见的点击条目，不能拿整个可滚动父分组作为来源。 */
-    private fun modalAnchorBounds(anchor: View): SettingsBackupMotionRect? {
+    internal fun modalAnchorBounds(anchor: View): SettingsBackupMotionRect? {
         if (!anchor.isAttachedToWindow || !anchor.isShown) return null
         val visible = android.graphics.Rect()
         if (!anchor.getGlobalVisibleRect(visible) || visible.isEmpty) return null
@@ -2087,7 +2208,11 @@ class MainActivity : SkinnedActivity() {
                 (18 * density).toInt()
             )
             background = skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP)
-            elevation = 12 * density
+            // 玻璃皮肤下卡片是半透明的，不能用系统 elevation 投影：系统按不透明物体画阴影，
+            // 半影有一半落在卡片内侧，透过玻璃显成一圈灰带（浅色下约 100px 宽，中间像套了
+            // 一个直角亮框；2026-09-24 用户报告"边缘颜色异常"）。与气泡面板一致不带投影，
+            // 面板靠描边与背板区分。无皮肤时卡片不透明，保留原投影。
+            elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density
             scaleX = 0.85f
             scaleY = 0.85f
             alpha = 0f
@@ -2106,9 +2231,10 @@ class MainActivity : SkinnedActivity() {
         onExpanded: () -> Unit = {},
         onBackDismiss: () -> Unit = {},
         morphAnchorBounds: SettingsBackupMotionRect? = null,
-        coverBounds: SettingsBackupMotionRect? = null
+        coverBounds: SettingsBackupMotionRect? = null,
+        onDismissed: (() -> Unit)? = null
     ) = presentSizedModalDialog(dialog, container, null, morphAnchor, anchorStyle,
-        onExpanded, onBackDismiss, morphAnchorBounds, coverBounds)
+        onExpanded, onBackDismiss, morphAnchorBounds, coverBounds, onDismissed)
 
     /**
      * @param morphAnchor 传入无文字的来源图标（如工具栏的搜索/GitHub 按钮）即启用图标锚点形变：
@@ -2139,7 +2265,8 @@ class MainActivity : SkinnedActivity() {
         onExpanded: () -> Unit = {},
         onBackDismiss: () -> Unit = {},
         morphAnchorBounds: SettingsBackupMotionRect? = null,
-        coverBounds: SettingsBackupMotionRect? = null
+        coverBounds: SettingsBackupMotionRect? = null,
+        onDismissed: (() -> Unit)? = null
     ) {
         clearElasticInteractions()
         container.tag = com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController.CONTAINER_TAG
@@ -2231,12 +2358,17 @@ class MainActivity : SkinnedActivity() {
             ?.let {
                 IconAnchoredMotionLayer(
                     this,
-                    surfaceBackground = modalBackground.takeIf { cover != null },
+                    // 所有锚点弹窗都把卡片表面托管给持久表面 View：形变首尾与落定画的是
+                    // 同一个 Drawable，落定瞬间不再有 drawable 交接。覆盖式面板沿用此路径。
+                    surfaceBackground = modalBackground
+                        ?: skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP),
                     fallbackColor = monetColors.surface,
-                    surfaceRadiusPx = MODAL_CORNER_RADIUS_DP * density
+                    surfaceRadiusPx = MODAL_CORNER_RADIUS_DP * density,
+                    // 卡片阴影移交表面 View，随帧矩形生长/落定；覆盖式面板保持无阴影。
+                    surfaceElevation = if (cover == null) container.elevation else 0f
                 ).also { layer ->
                     if (layer.usesPersistentSurface) {
-                        // 覆盖式面板的填充与描边始终归承载表面；正文只负责内容动画。
+                        // 填充、描边与投影始终归承载表面；正文只负责内容动画。
                         container.background = null
                         container.elevation = 0f
                     }
@@ -2246,16 +2378,12 @@ class MainActivity : SkinnedActivity() {
         // 平台 dim（FLAG_DIM_BEHIND）不可动画，且会硬切在自绘的形变/气泡入场之前。
         // 叠在父面板上的子面板不再加一层：父面板那层还在，两层 scrim 会叠加得更暗。
         val scrim = if (cover == null) View(this).apply {
-            setBackgroundColor(MODAL_SCRIM_COLOR)
+            setBackgroundColor(modalScrimColor())
             alpha = 0f
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             isFocusable = false
         } else null
-        val root = NativeFrameLayout(this).apply {
-            scrim?.let {
-                addView(it, NativeFrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            }
+        val root = ModalCardRoot(this).apply {
             val cardParams = if (bubblePlacement != null) {
                 NativeFrameLayout.LayoutParams(
                     bubblePlacement.width.toInt(),
@@ -2300,6 +2428,33 @@ class MainActivity : SkinnedActivity() {
             } else {
                 addView(container, cardParams)
             }
+        }
+        // 窗口铺满整屏（见下方 dialog.window 配置），压暗层在最外层盖住状态栏与导航栏；
+        // root 按系统栏内缩，卡片、气泡、覆盖式面板仍以 root 为坐标原点，几何与原来一致。
+        // 2026-09-24 用户报告：原来窗口避开系统栏，打开面板后状态栏一条不被压暗。
+        val windowFrame = NativeFrameLayout(this).apply {
+            scrim?.let {
+                addView(it, NativeFrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }
+            addView(root, NativeFrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(windowFrame) { _, insets ->
+            // 与原来 decor 的默认内缩一致：只让开系统栏与刘海。弹窗是 adjustPan，
+            // 输入法由系统平移窗口处理，不在这里内缩。
+            val safe = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                    androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            )
+            val params = root.layoutParams as NativeFrameLayout.LayoutParams
+            if (params.leftMargin != safe.left || params.topMargin != safe.top ||
+                params.rightMargin != safe.right || params.bottomMargin != safe.bottom
+            ) {
+                params.setMargins(safe.left, safe.top, safe.right, safe.bottom)
+                root.layoutParams = params
+            }
+            insets
         }
         // 子面板贴到父面板矩形上。两张 Dialog 的窗口原点不保证相同（状态栏、adjustPan），
         // 所以每次都拿 root 的屏幕位置换算，不假设 0。
@@ -2346,7 +2501,20 @@ class MainActivity : SkinnedActivity() {
         // **必须淡整个 decorView，不能只淡内容容器**：气泡面板的表面（连同描边）是
         // `BubblePanelLayer` 画的，容器自己 `background = null`，淡容器只会让文字变淡、
         // 描边纹丝不动——这条是实测撞出来的，改回去就白修了。
-        val coveredContent = if (cover != null) coveredParent?.window?.decorView else null
+        // 覆盖式子面板要淡出的是父面板的**卡片层**，绝不能淡整张 decorView——父面板的
+        // 压暗层（scrim）就在那张 decorView 里，跟着淡到 0 等于背景压暗整个消失，而子面板
+        // 按"父面板那层还在"的前提**故意没有自己的 scrim**，两条假设一撞就是全屏变亮
+        // （2026-09-22 真机实测：面板外背景 BGR 25.7/29.3/26.1 → 42.0/48.0/42.7，
+        // 底页文字明显透出）。父面板窗口层的孩子是 [scrim, root(卡片层, 飞行标题浮层)]，
+        // 取第一个非 scrim 的孩子即内缩后的 root；拿不到就退回旧行为，不让排版异常变成崩溃。
+        val coveredContent = if (cover != null) coveredParent?.let { parent ->
+            val parentScrim = dialogScrims[parent]
+            val parentRoot = parentScrim?.parent as? ViewGroup
+            val cardLayer = if (parentRoot == null) null else (0 until parentRoot.childCount)
+                .map(parentRoot::getChildAt)
+                .firstOrNull { it !== parentScrim }
+            cardLayer ?: parent.window?.decorView
+        } else null
         val backdropBlur = if (cover != null) null else ModalBackdropBlur.createOrNull(
             window = dialog.window,
             userEnabled = ModalBackdropBlurStore.read(this),
@@ -2363,9 +2531,11 @@ class MainActivity : SkinnedActivity() {
                     coveredContent?.alpha = IconAnchoredMotionSpec.coveredParentAlpha(progress)
                 },
                 onExpanded = ::notifyExpanded,
+                onContentMoved = { notifyPreparedSkinPositionChanged() },
                 onClosed = {
-                    dialog.dismiss()
-                    (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    dismissAfterFinalFrame(dialog) {
+                        (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    }
                 }
             )
         } else {
@@ -2374,6 +2544,9 @@ class MainActivity : SkinnedActivity() {
         val titleMotion = if (morphLayer != null) {
             ModalTitleMotion.create(morphAnchor, container.firstChildOrNull<NativeTextView>(), root)
                 ?.also { title ->
+                    // 承载层带 elevation 后 Z>0，会把 Z=0 的兄弟盖到表面之下；
+                    // 飞行标题只抬 Z 序（空 outline，自身不投影），保持在面板之上。
+                    title.elevation = morphLayer.elevation + 1f
                     root.addView(title, NativeFrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 }
@@ -2404,11 +2577,16 @@ class MainActivity : SkinnedActivity() {
                     backdropBlur?.apply(progress)
                     scrim?.alpha = progress
                     coveredContent?.alpha = IconAnchoredMotionSpec.coveredParentAlpha(progress)
+                    // 父面板在子面板当前覆盖的区域里按子面板不透明度让位：外轮廓不回缩、
+                    // 开头不露底、结尾不叠亮，见 ModalCardRoot。承载层 alpha 已在本帧回调前设好。
+                    (coveredContent as? ModalCardRoot)?.excludeMotionSurface(morphLayer, morphLayer.alpha)
                 },
                 onExpanded = ::notifyExpanded,
+                onContentMoved = { notifyPreparedSkinPositionChanged() },
                 onClosed = {
-                    dialog.dismiss()
-                    (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    dismissAfterFinalFrame(dialog) {
+                        (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
+                    }
                 }
             )
         } else {
@@ -2513,8 +2691,53 @@ class MainActivity : SkinnedActivity() {
             // 于是最后一帧里那份满不透明的飞行标题被窗口动画拖着向上飘走并淡出，
             // 现场就是"返回动画末端，文字上方冒出一个重影往上飞着消失"。
             // 实测本机这两个窗口的 `anim=` 是非零的（`dumpsys window windows`），确认动画开着。
+            // 铺到系统栏下面：浮动窗口默认按系统栏缩框，压暗层盖不到状态栏。
+            // 内容区的内缩由 windowFrame 的 insets 监听自己做。
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(this, false)
+            if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
+                attributes = attributes.apply {
+                    fitInsetsTypes = 0
+                    layoutInDisplayCutoutMode =
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+            } else {
+                addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+                if (AndroidVersion.isAtLeast(AndroidVersion.P)) {
+                    attributes = attributes.apply {
+                        layoutInDisplayCutoutMode =
+                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                }
+            }
+            // 弹窗窗口不带 DRAWS_SYSTEM_BAR_BACKGROUNDS 时，系统按旧语义在它盖住的状态栏上
+            // 画一条不透明黑底、图标强制变白（真机实测状态栏整条 0,0,0，诊断确认弹窗自身
+            // 在该区域没有任何绘制）。由窗口自己接管系统栏背景并设为透明，压暗层才透得出来。
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            @Suppress("DEPRECATION")
+            statusBarColor = Color.TRANSPARENT
+            @Suppress("DEPRECATION")
+            navigationBarColor = Color.TRANSPARENT
+            if (AndroidVersion.isAtLeast(AndroidVersion.Q)) {
+                isStatusBarContrastEnforced = false
+                isNavigationBarContrastEnforced = false
+            }
+            // 窗口盖住状态栏后由它决定图标明暗；沿用页面的设置，打开面板时图标不跳色。
+            val pageBars = androidx.core.view.WindowCompat.getInsetsController(this@MainActivity.window, this@MainActivity.window.decorView)
+            androidx.core.view.WindowCompat.getInsetsController(this, decorView).apply {
+                isAppearanceLightStatusBars = pageBars.isAppearanceLightStatusBars
+                isAppearanceLightNavigationBars = pageBars.isAppearanceLightNavigationBars
+            }
         }
-        dialog.setContentView(root)
+        dialog.setContentView(windowFrame)
+        // 平台弹窗布局（screen_simple 一类）里有 fitsSystemWindows="true" 的容器，会把整个内容区
+        // 连同压暗层按状态栏高度下推，空出的那条由 DecorView 的兜底背景填成黑色（真机实测
+        // 状态栏整条 0,0,0）。祖先链一律不吃 insets，内缩只由 windowFrame 的监听做。
+        var fitAncestor = windowFrame.parent as? View
+        while (fitAncestor != null && fitAncestor !== dialog.window?.decorView) {
+            fitAncestor.fitsSystemWindows = false
+            fitAncestor.setPadding(0, 0, 0, 0)
+            fitAncestor = fitAncestor.parent as? View
+        }
         val releaseElasticInteraction = installDialogElasticInteraction(dialog)
         // **必须在 setContentView 之后**：`PhoneWindow.generateLayout()`（由 setContentView 触发）
         // 会从主题里重新读 `windowAnimationStyle` 覆盖 `params.windowAnimations`，
@@ -2576,6 +2799,7 @@ class MainActivity : SkinnedActivity() {
                             container.scaleY = 1f - 0.05f * progress
                             container.alpha = 1f - 0.15f * progress
                             scrim?.alpha = container.alpha
+                            notifyPreparedSkinPositionChanged()
                         }
                     }
                 },
@@ -2590,6 +2814,14 @@ class MainActivity : SkinnedActivity() {
                                 .scaleX(1f).scaleY(1f).alpha(1f)
                                 .setDuration(260L)
                                 .setInterpolator(emphasizedDecelerate)
+                                // ViewPropertyAnimator 的监听器是黏性的：原先这里隐式沿用入场监听器推进
+                                // 模糊与压暗，显式设置时要把那两项带上，再加上逐帧位置通知。
+                                .setUpdateListener {
+                                    backdropBlur?.apply(container.alpha)
+                                    scrim?.alpha = container.alpha
+                                    notifyPreparedSkinPositionChanged()
+                                }
+                                .withEndAction { notifyPreparedSkinPositionChanged() }
                                 .start()
                             scrim?.animate()?.alpha(1f)
                                 ?.setDuration(260L)
@@ -2668,6 +2900,7 @@ class MainActivity : SkinnedActivity() {
             dialogScrims.remove(dialog)
             // 硬关会把形变停在半路，父面板不能留着半透明的 alpha：它马上就要重新露出来。
             coveredContent?.alpha = 1f
+            (coveredContent as? ModalCardRoot)?.clearExclusion()
             // 子面板收起后父面板重新露出来，它必须变回"当前弹窗"：这个字段是更新检查
             // 与激活卡那几处 `activeConfirmDialog?.isShowing` 的唯一依据，留空会让它们
             // 以为没有弹窗开着，从而在父面板脸上再弹一个。
@@ -2690,6 +2923,9 @@ class MainActivity : SkinnedActivity() {
                 activeHighlightsFrom = null
             }
             scheduleReleaseHighlights()
+            // 调用方的收尾在这里跑，而不是让调用方再 setOnDismissListener——
+            // 那是单字段覆盖，会把本监听器承担的全部清理整条换掉。
+            onDismissed?.invoke()
         }
         activeConfirmDialog = dialog
         dialog.show()
@@ -2750,13 +2986,20 @@ class MainActivity : SkinnedActivity() {
                 // 无锚点弹窗没有形变时钟，借它自己的入场进度推模糊。退场由
                 // 共用的 dismissWithAnimation 负责，窗口撤掉时模糊随之消失（硬切，
                 // 与这条路径本来的淡出观感一致），不去改那 72 个调用点。
+                // 缩放入场会移动卡片里按钮等玻璃表面的屏幕位置，但属性动画既不触发滚动回调，
+                // 也不重录子 View 的显示列表：不逐帧通知的话，表面采样会停在动画中途的位置，
+                // 要等下一次无关重绘才按真实位置重采，按钮光影就会在打开后整体跳一下。
+                // 与锚点形变路径（IconAnchoredMotionController.onContentMoved，2026-09-26 真机
+                // 插桩 + 录屏验证）同一机制；本路径未单独做真机录屏。
                 .setUpdateListener {
                     backdropBlur?.apply(container.alpha)
                     scrim?.alpha = container.alpha
+                    notifyPreparedSkinPositionChanged()
                 }
                 .withEndAction {
                     backdropBlur?.apply(1f)
                     scrim?.alpha = 1f
+                    notifyPreparedSkinPositionChanged()
                     notifyExpanded()
                 }
                 .start()
@@ -3485,6 +3728,7 @@ class MainActivity : SkinnedActivity() {
         PURIFICATION_ADVANCED,
         ENHANCEMENT,
         ENHANCEMENT_ADVANCED,
+        BEAUTIFICATION,
         EXPERIMENTAL,
         APPEARANCE,
         COMPATIBILITY;
@@ -3510,6 +3754,7 @@ class MainActivity : SkinnedActivity() {
                 SettingsSearchSection.PURIFICATION_ADVANCED -> R.string.purification_advanced_settings
                 SettingsSearchSection.ENHANCEMENT -> R.string.enhancement_settings
                 SettingsSearchSection.ENHANCEMENT_ADVANCED -> R.string.enhancement_advanced_settings
+                SettingsSearchSection.BEAUTIFICATION -> R.string.settings_home_beautify
                 SettingsSearchSection.EXPERIMENTAL -> R.string.experimental_features
                 SettingsSearchSection.APPEARANCE -> R.string.settings_search_section_appearance
                 SettingsSearchSection.COMPATIBILITY -> R.string.settings_search_section_compatibility
@@ -3571,6 +3816,7 @@ class MainActivity : SkinnedActivity() {
             val section = when (view) {
                 purificationSettingsRoot -> SettingsSearchSection.PURIFICATION
                 enhancementSettingsRoot -> SettingsSearchSection.ENHANCEMENT
+                beautificationSettingsRoot -> SettingsSearchSection.BEAUTIFICATION
                 purificationAdvancedContent -> SettingsSearchSection.PURIFICATION_ADVANCED
                 enhancementAdvancedContent -> SettingsSearchSection.ENHANCEMENT_ADVANCED
                 experimentalSettingsRoot -> SettingsSearchSection.EXPERIMENTAL
@@ -3714,6 +3960,7 @@ class MainActivity : SkinnedActivity() {
             SettingsSearchSection.GENERAL,
             SettingsSearchSection.PURIFICATION,
             SettingsSearchSection.ENHANCEMENT,
+            SettingsSearchSection.BEAUTIFICATION,
             SettingsSearchSection.EXPERIMENTAL -> Unit
         }
         if (target.section.isAdvanced) expandAdvancedCategoryContaining(target.view)
@@ -3900,6 +4147,7 @@ class MainActivity : SkinnedActivity() {
         compatibilityChevron = null
         purificationSettingsRoot = null
         enhancementSettingsRoot = null
+        beautificationSettingsRoot = null
         purificationAdvancedContent = null
         purificationAdvancedChevron = null
         enhancementAdvancedContent = null
@@ -4052,6 +4300,11 @@ class MainActivity : SkinnedActivity() {
         homeRecommendBlockedAuthors = uiSettings.string(FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS)
         homeRecommendSectionPickEnabled =
             uiSettings.bool(FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED)
+        blockAiDeclaredVideos = uiSettings.bool(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS)
+        blockAiDeclaredVideosStrongMode =
+            uiSettings.bool(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE)
+        biliAccessKeyAuthorized = uiSettings.bool(FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED)
+        blockAiDeclaredVideosPrecheck = uiSettings.bool(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_PRECHECK)
         videoRelateBlockedAuthors = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_AUTHORS)
         videoRelateBlockedTags = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS)
         removeHomeRecommendLive = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE)
@@ -4137,6 +4390,7 @@ class MainActivity : SkinnedActivity() {
         playerDefaultSpeedPercent = PlayerSpeedConfig.normalize(
             uiSettings.int(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
         )
+        playerSponsorBlockEnabled = prefs().getBoolean(FeaturePreferences.PLAYER_SPONSOR_BLOCK_ENABLED, false)
         removeCommentSearchLinks = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS)
         removeCommentEmptyGuide = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE)
         removeCommentVoteWidgets = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS)
@@ -4152,6 +4406,10 @@ class MainActivity : SkinnedActivity() {
         commentMinLevel =
             uiSettings.int(FeaturePreferences.COMMENT_MIN_LEVEL).coerceIn(1, 6)
         dynamicKeywordFilterEnabled = uiSettings.bool(FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED)
+        dynamicSemanticFilterEnabled = uiSettings.bool(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED)
+        danmakuSemanticFilterEnabled = uiSettings.bool(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED)
+        commentSemanticFilterEnabled = uiSettings.bool(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED)
+        videoSemanticFilterEnabled = uiSettings.bool(FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED)
         dynamicFilterKeywords = uiSettings.string(FeaturePreferences.DYNAMIC_FILTER_KEYWORDS)
         dynamicAuthorFilterEnabled = uiSettings.bool(FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED)
         dynamicAuthorFilterRules = uiSettings.string(FeaturePreferences.DYNAMIC_AUTHOR_FILTER_RULES)
@@ -4181,9 +4439,20 @@ class MainActivity : SkinnedActivity() {
         forceExternalBrowser = uiSettings.bool(FeaturePreferences.FORCE_EXTERNAL_BROWSER)
         systemMediaNotification = uiSettings.bool(FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION)
         splashAutoNight = uiSettings.bool(FeaturePreferences.SPLASH_AUTO_NIGHT)
+        brandSplashSkip = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_SKIP)
+        brandSplashCustom = uiSettings.bool(FeaturePreferences.BRAND_SPLASH_CUSTOM)
         showBvAsAv = uiSettings.bool(FeaturePreferences.SHOW_BV_AS_AV)
         blockTeenagersModePrompt = uiSettings.bool(FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT)
         purifySplashAds = uiSettings.bool(FeaturePreferences.PURIFY_SPLASH_ADS)
+        hostBottomBarLiquidGlass = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS)
+        hostBottomBarTouchGlow = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW)
+        hostVideoCards = uiSettings.bool(FeaturePreferences.HOST_VIDEO_CARDS)
+        hostVideoCardRadiusDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostVideoCardStyleSpec.normalizeRadius(
+            uiSettings.int(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP))
+        hostBottomBarCompact = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT)
+        hostBottomBarIconOnly = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY)
+        hostTopBarLiquidGlass = uiSettings.bool(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS)
+        hostTopBarTouchGlow = uiSettings.bool(FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW)
         merchAdEnabled = uiSettings.bool(HookEntry.PREF_MERCH_ENABLED)
         freeCopyEnabled = uiSettings.bool(HookEntry.PREF_FREE_COPY_ENABLED)
         freeCopyDescEnabled = uiSettings.bool(HookEntry.PREF_FREE_COPY_DESC_ENABLED)
@@ -4245,7 +4514,7 @@ class MainActivity : SkinnedActivity() {
                             marginStart = 5.dp
                         }
                     ) {
-                        background = skinFloatingBackground(monetColors.surface, 24f)
+                        background = skinChromeOverlayBackground(monetColors.surface, 24f)
                         foreground = selfRippleBackground(24f)
                         updatePadding(10.dp)
                         setImageResource(R.drawable.ic_search)
@@ -4259,7 +4528,7 @@ class MainActivity : SkinnedActivity() {
                             marginEnd = 12.dp
                         }
                     ) {
-                        background = skinFloatingBackground(monetColors.surface, 24f)
+                        background = skinChromeOverlayBackground(monetColors.surface, 24f)
                         foreground = selfRippleBackground(24f)
                         updatePadding(10.dp)
                         setImageResource(R.drawable.ic_restart)
@@ -4278,7 +4547,7 @@ class MainActivity : SkinnedActivity() {
                         ImageView(
                             lparams = LayoutParams(48.dp, 48.dp)
                         ) {
-                            background = skinFloatingBackground(monetColors.surface, 24f)
+                            background = skinChromeOverlayBackground(monetColors.surface, 24f)
                             foreground = selfRippleBackground(24f)
                             updatePadding(10.dp)
                             setImageResource(R.mipmap.ic_github)
@@ -4344,13 +4613,18 @@ class MainActivity : SkinnedActivity() {
                         background = roundedColor(monetColors.surfaceVariant)
                         // 整卡参与全局长按弹性（与「设置备份与恢复」同款）：涟漪放前景，
                         // renderActivationUi 会在未激活态把 accent 光晕叠在它上面
-                        // （光晕只画边缘，不挡按压反馈）。轻点整卡＝打开统一功能诊断。
+                        // （光晕只画边缘，不挡按压反馈）。
+                        // 可点击只为接住按下、成为弹性目标；轻点整卡**不**打开诊断，入口只有
+                        // 右侧「统一功能诊断」按钮（2026-09-24 用户要求，原先整卡都会跳转）。
                         foreground = selfRippleBackground(ActivationCardVisualSpec.CORNER_RADIUS_DP)
                         isClickable = true
-                        isFocusable = true
+                        isFocusable = false
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                         activationCardView = this
-                        setOnClickListener { launchDiagnostics() }
+                        // 读屏不播报"可激活"：卡片只是状态展示。
+                        ViewCompat.replaceAccessibilityAction(this,
+                            androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                            null, null)
                     }
                 ) {
                     ImageView(
@@ -4459,9 +4733,8 @@ class MainActivity : SkinnedActivity() {
                                 val darkTheme = (resources.configuration.uiMode and
                                     android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
                                     android.content.res.Configuration.UI_MODE_NIGHT_YES
-                                val surfaceColor = ColorUtils.setAlphaComponent(
-                                    neutralColor,
-                                    DiagnosticsEntryVisualSpec.scrimAlpha(darkTheme)
+                                val surfaceColor = DiagnosticsEntryVisualSpec.surfaceColor(
+                                    darkTheme, neutralColor, monetColors.surface
                                 )
                                 background = skinMotionSurfaceBackground(
                                     surfaceColor,
@@ -4557,6 +4830,8 @@ class MainActivity : SkinnedActivity() {
                         Space(lparams = LayoutParams(height = 10.dp))
                         enhancementSettingsCard(uiSettings)
                         Space(lparams = LayoutParams(height = 10.dp))
+                        beautificationSettingsCard()
+                        Space(lparams = LayoutParams(height = 10.dp))
                         experimentalFeaturesCard(uiSettings)
                         Space(lparams = LayoutParams(height = 10.dp))
                         logSettingsCard()
@@ -4601,6 +4876,7 @@ class MainActivity : SkinnedActivity() {
             originalContent = content,
             purification = purificationSettingsRoot,
             enhancement = enhancementSettingsRoot,
+            beautification = beautificationSettingsRoot,
             activation = activationCardView,
             floatingToolbar = settingsFloatingToolbar,
             savedState = savedState,
@@ -4623,7 +4899,7 @@ class MainActivity : SkinnedActivity() {
 
     internal fun styleHomeControls(root: View) = stylePreparedSkinControls(root)
 
-    private fun bindFavoriteSwitch(
+    internal fun bindFavoriteSwitch(
         view: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch,
         storageKey: String,
         directToggle: Boolean = true
@@ -4631,6 +4907,10 @@ class MainActivity : SkinnedActivity() {
         val id = SettingsCatalog.byStorageKey[storageKey]?.id ?: return
         view.settingId = id
         view.supportsFavoriteToggle = directToggle
+    }
+
+    internal fun bindSettingDestination(view: View, storageKey: String) {
+        SettingsCatalog.byStorageKey[storageKey]?.id?.let { settingsDestinations.bind(it, view) }
     }
 
     /** 设置备份入口卡片。 */
@@ -5086,7 +5366,7 @@ class MainActivity : SkinnedActivity() {
                     textSize = 12f
                 }
             }
-            // 自由复制：内容能力与气泡外观集中在增强主栏。
+            // 自由复制能力保留在增强栏，气泡外观由美化栏管理。
             TextView(
                 lparams = LayoutParams(widthMatchParent = true) {
                     bottomMargin = 4.dp
@@ -5178,17 +5458,210 @@ class MainActivity : SkinnedActivity() {
                 textColor = colorResource(R.color.colorTextDark)
                 textSize = 12f
             }
-            // 亮色模式开关（白底黑字气泡，适配亮色主题；同时控制评论与简介气泡）
-            TextView(
+            LinearLayout(
                 lparams = LayoutParams(widthMatchParent = true) {
                     topMargin = 14.dp
-                    bottomMargin = 4.dp
+                },
+                init = {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER or Gravity.START
+                    background = skinCardBackground(monetColors.surface, 12f)
+                    updatePadding(
+                        left = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                        top = 5.dp,
+                        right = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
+                        bottom = 5.dp
+                    )
                 }
             ) {
-                alpha = 0.7f
-                text = stringResource(R.string.free_copy_appearance_settings)
+                LinearLayout(
+                    lparams = LayoutParams(widthMatchParent = true),
+                    init = {
+                        gravity = Gravity.CENTER or Gravity.START
+                        updatePadding(vertical = 10.dp)
+                        setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.ENHANCEMENT_ADVANCED) }
+                    }
+                ) {
+                    ImageView(
+                        lparams = LayoutParams(15.dp, 15.dp) {
+                            marginEnd = 10.dp
+                        }
+                    ) {
+                        setImageResource(R.drawable.ic_enhancement)
+                        imageTintList = stateColorResource(R.color.colorTextGray)
+                    }
+                    TextView(
+                        lparams = LayoutParams { weight = 1f }
+                    ) {
+                        alpha = 0.85f
+                        maxLines = 2
+                        text = stringResource(R.string.enhancement_advanced_settings)
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 12f
+                    }
+                    ImageView(
+                        lparams = LayoutParams(18.dp, 18.dp)
+                    ) {
+                        enhancementAdvancedChevron = this
+                        setImageResource(R.drawable.ic_chevron_down)
+                        imageTintList = stateColorResource(R.color.colorTextGray)
+                        alpha = 0.85f
+                    }
+                }
+                LinearLayout(
+                    lparams = LayoutParams(widthMatchParent = true),
+                    init = {
+                        orientation = LinearLayout.VERTICAL
+                        visibility = View.GONE
+                        enhancementAdvancedContent = this
+                        // 12dp 留白由共享分组构建器提供，此处不得重复叠加。
+                        updatePadding(bottom = 10.dp)
+                    }
+                ) {
+                    enhanceBrowsingCategory()
+                    enhancePlaybackCategory(uiSettings)
+                    enhanceLiveCategory()
+                    enhanceCommentsCategory()
+                    enhanceDisplayCategory()
+                    enhanceSystemCategory()
+                }
+            }
+        }
+    }
+
+    /** 宿主外观统一入口；复用原控件、偏好键及收藏监听器。 */
+    @com.highcapable.hikage.annotation.Hikagable
+    private fun Hikage.Performer<NativeLinearLayout.LayoutParams>.beautificationSettingsCard() {
+        LinearLayout(
+            lparams = LayoutParams(widthMatchParent = true) {
+                updateMargins(horizontal = 15.dp)
+            },
+            init = {
+                beautificationSettingsRoot = this
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER or Gravity.START
+                background = skinCardBackground(monetColors.surfaceVariant)
+                updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
+            }
+        ) {
+            hostAppearanceHeading(R.string.host_appearance_top_bar)
+            hostTopBarAppearanceRows(this)
+            hostAppearanceHeading(R.string.host_appearance_bottom_bar)
+            hostBottomBarAppearanceRows(this)
+            hostAppearanceHeading(R.string.host_appearance_video_cards)
+            hostVideoCardAppearanceRows(this)
+            hostAppearanceHeading(R.string.host_appearance_player)
+            MaterialSwitch(
+                lparams = LayoutParams(widthMatchParent = true) {
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                bindFavoriteSwitch(this, FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, directToggle = true)
+                text = stringResource(R.string.transparent_player_status_bar)
+                isAllCaps = false
                 textColor = colorResource(R.color.colorTextGray)
-                textSize = 11f
+                textSize = 15f
+                isChecked = transparentPlayerStatusBar
+                setOnCheckedChangeListener { _, isChecked ->
+                    transparentPlayerStatusBar = isChecked
+                    runCatching {
+                        prefs().edit {
+                            putBoolean(
+                                FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
+                                isChecked
+                            )
+                        }
+                    }.onFailure { t ->
+                        Log.e(
+                            "BilibiliInnocentLab",
+                            "write player status bar prefs failed",
+                            t
+                        )
+                    }
+                }
+            }
+            TextView(
+                lparams = LayoutParams(widthMatchParent = true)
+            ) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.transparent_player_status_bar_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+            }
+            hostAppearanceHeading(R.string.host_appearance_splash)
+            MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+                bindFavoriteSwitch(this, FeaturePreferences.BRAND_SPLASH_CUSTOM, directToggle = true)
+                text = stringResource(R.string.brand_splash_custom)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = brandSplashCustom
+                setOnCheckedChangeListener { _, checked ->
+                    runCatching { prefs().edit { putBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, checked) } }
+                        .onSuccess { brandSplashCustom = checked }
+                        .onFailure { throwable ->
+                            Log.e("BilibiliInnocentLab", "write brand splash custom prefs failed", throwable)
+                            isChecked = brandSplashCustom
+                        }
+                }
+            }
+            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.brand_splash_custom_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+            }
+            MaterialSwitch(
+                lparams = LayoutParams(widthMatchParent = true) {
+                    topMargin = 12.dp
+                    bottomMargin = 5.dp
+                }
+            ) {
+                bindFavoriteSwitch(this, FeaturePreferences.SPLASH_AUTO_NIGHT, directToggle = true)
+                text = stringResource(R.string.splash_auto_night)
+                isAllCaps = false
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+                isChecked = splashAutoNight
+                setOnCheckedChangeListener { _, checked ->
+                    splashAutoNight = checked
+                    runCatching {
+                        prefs().edit {
+                            putBoolean(
+                                FeaturePreferences.SPLASH_AUTO_NIGHT,
+                                checked
+                            )
+                        }
+                    }.onFailure { throwable ->
+                        Log.e(
+                            "BilibiliInnocentLab",
+                            "write splash auto night prefs failed",
+                            throwable
+                        )
+                    }
+                }
+            }
+            TextView(
+                lparams = LayoutParams(widthMatchParent = true)
+            ) {
+                alpha = 0.6f
+                setLineSpacing(6f, 1f)
+                text = stringResource(R.string.splash_auto_night_tip)
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+            }
+            // 复制气泡外观同时控制评论与简介。
+            TextView(
+                lparams = LayoutParams(widthMatchParent = true) {
+                    topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                    bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
+                }
+            ) {
+                text = stringResource(R.string.free_copy_appearance_settings)
+                applyAdvancedSubsectionStyle()
             }
             MaterialSwitch(
                 lparams = LayoutParams(widthMatchParent = true) {
@@ -5293,74 +5766,19 @@ class MainActivity : SkinnedActivity() {
                 textSize = 12f
                 lightModeTipView = this
             }
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true) {
-                    topMargin = 14.dp
-                },
-                init = {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER or Gravity.START
-                    background = skinCardBackground(monetColors.surface, 12f)
-                    updatePadding(
-                        left = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
-                        top = 5.dp,
-                        right = SettingsMenuSpacing.ADVANCED_SHELL_DP.dp,
-                        bottom = 5.dp
-                    )
-                }
-            ) {
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true),
-                    init = {
-                        gravity = Gravity.CENTER or Gravity.START
-                        updatePadding(vertical = 10.dp)
-                        setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.ENHANCEMENT_ADVANCED) }
-                    }
-                ) {
-                    ImageView(
-                        lparams = LayoutParams(15.dp, 15.dp) {
-                            marginEnd = 10.dp
-                        }
-                    ) {
-                        setImageResource(R.drawable.ic_enhancement)
-                        imageTintList = stateColorResource(R.color.colorTextGray)
-                    }
-                    TextView(
-                        lparams = LayoutParams { weight = 1f }
-                    ) {
-                        alpha = 0.85f
-                        maxLines = 2
-                        text = stringResource(R.string.enhancement_advanced_settings)
-                        textColor = colorResource(R.color.colorTextGray)
-                        textSize = 12f
-                    }
-                    ImageView(
-                        lparams = LayoutParams(18.dp, 18.dp)
-                    ) {
-                        enhancementAdvancedChevron = this
-                        setImageResource(R.drawable.ic_chevron_down)
-                        imageTintList = stateColorResource(R.color.colorTextGray)
-                        alpha = 0.85f
-                    }
-                }
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true),
-                    init = {
-                        orientation = LinearLayout.VERTICAL
-                        visibility = View.GONE
-                        enhancementAdvancedContent = this
-                        // 12dp 留白由共享分组构建器提供，此处不得重复叠加。
-                        updatePadding(bottom = 10.dp)
-                    }
-                ) {
-                    enhanceBrowsingCategory()
-                    enhancePlaybackCategory(uiSettings)
-                    enhanceLiveCategory()
-                    enhanceCommentsCategory()
-                    enhanceDisplayCategory()
-                    enhanceSystemCategory()
-                }
+        }
+    }
+
+    @com.highcapable.hikage.annotation.Hikagable
+    private fun Hikage.Performer<NativeLinearLayout.LayoutParams>.hostAppearanceHeading(@StringRes title: Int) {
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+                bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
             }
+        ) {
+            text = stringResource(title)
+            applyAdvancedSubsectionStyle()
         }
     }
 
@@ -5830,6 +6248,68 @@ class MainActivity : SkinnedActivity() {
                         textColor = colorResource(R.color.colorTextDark)
                         textSize = 12f
                     }
+                    MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                        text = stringResource(R.string.bili_access_key_authorize)
+                        settingsDestinations.bind(SettingsCatalog.ID_BILI_ACCESS_KEY_AUTHORIZED, this)
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 15f
+                        isAllCaps = false
+                        isChecked = biliAccessKeyAuthorized
+                        biliAccessKeySwitch = this
+                        setOnCheckedChangeListener { button, checked ->
+                            if (biliAccessKeyProgrammaticSwitch) return@setOnCheckedChangeListener
+                            // 打开必须先过风险确认：开关先弹回原状态，确认后才真正写入。
+                            biliAccessKeyProgrammaticSwitch = true
+                            button.isChecked = biliAccessKeyAuthorized
+                            biliAccessKeyProgrammaticSwitch = false
+                            if (checked) showBiliAccessKeyConfirmDialog(anchor = button)
+                            else setBiliAccessKeyAuthorized(false)
+                        }
+                    }
+                    TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.bili_access_key_authorize_tip)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
+                    // JEV 语义判定配置：Key / 地址 / 灵敏度 / 首屏等待，都在同一个面板里保存。
+                    TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                        semanticJevSummaryView = this
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, this)
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY, this)
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_WAIT_FIRST_SCREEN, this)
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_CACHE_DAYS, this)
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_PROVIDER, this)
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_MODEL, this)
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_TIMEOUT_MS, this)
+                        settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_GUIDANCE, this)
+                        (2..4).forEach { index ->
+                            listOf("provider", "endpoint", "model").forEach { field ->
+                                settingsDestinations.bind("compat.semantic_source.$index.$field", this)
+                            }
+                        }
+                        text = semanticJevEntryText()
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 15f
+                        setLineSpacing(5f, 1f)
+                        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                        background = selfRippleBackground(10f)
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener {
+                            showSemanticJevSettingsDialog(anchor = it) {
+                                semanticJevSummaryView?.text = semanticJevEntryText()
+                            }
+                        }
+                    }
+                    TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                        alpha = 0.6f
+                        setLineSpacing(6f, 1f)
+                        text = stringResource(R.string.semantic_jev_tip)
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 12f
+                    }
                     MaterialSwitch(
                         lparams = LayoutParams(widthMatchParent = true) {
                             bottomMargin = 5.dp
@@ -6174,6 +6654,7 @@ class MainActivity : SkinnedActivity() {
         @StringRes stringResource: Int,
         @DrawableRes imageResource: Int
     ) = Hikagable<MarginLayoutParams> {
+        var linkLabel: NativeTextView? = null
         LinearLayout(
             lparams = LayoutParams(widthMatchParent = true) {
                 updateMargins(left = 15.dp, right = 15.dp)
@@ -6181,7 +6662,11 @@ class MainActivity : SkinnedActivity() {
             init = {
                 gravity = Gravity.CENTER or Gravity.START
                 background = skinCardBackground(monetColors.surfaceVariant)
+                foreground = selfRippleBackground(15f)
                 setPadding(10.dp)
+                setOnClickListener {
+                    linkLabel?.let { label -> label.urls.singleOrNull()?.onClick(label) }
+                }
             }
         ) {
             ImageView(
@@ -6201,6 +6686,12 @@ class MainActivity : SkinnedActivity() {
                 text = stringResource(stringResource)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 11f
+                // 保留自动链接的样式与目标，由整卡处理点击，文字区也能进入全局弹性手势。
+                movementMethod = null
+                isClickable = false
+                isLongClickable = false
+                isFocusable = false
+                linkLabel = this
             }
         }
     }
@@ -6906,6 +7397,25 @@ class MainActivity : SkinnedActivity() {
                 bottomMargin = 5.dp
             }
         ) {
+            bindFavoriteSwitch(this, FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED, directToggle = true)
+            settingsDestinations.bind(SettingsCatalog.ID_COMMENT_SEMANTIC_FILTER, this)
+            text = stringResource(R.string.comment_semantic_filter)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = commentSemanticFilterEnabled
+            setOnCheckedChangeListener { _, checked ->
+                commentSemanticFilterEnabled = checked
+                writeSemanticSwitch(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED, checked)
+            }
+        }
+        semanticFilterDetails(SemanticSurface.COMMENT, SettingsCatalog.ID_COMMENT_SEMANTIC_RULES, R.string.comment_semantic_filter_tip)
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
             bindFavoriteSwitch(this, FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED, directToggle = true)
             text = stringResource(R.string.comment_keyword_filter)
             isAllCaps = false
@@ -7466,6 +7976,16 @@ class MainActivity : SkinnedActivity() {
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
+                // 供设置项搜索命中子项：13 个勾选都在弹窗里，开关本体已 GONE，
+                // 没有这条索引就只有面板标题能被搜到（与其余四个弹窗面板的兜底同口径）。
+                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    visibility = View.GONE
+                    text = PortraitContentFilterCatalog.options.joinToString(separator = " ") { option ->
+                        stringResource(portraitContentFilterLabel(option.preferenceKey))
+                    }
+                    textColor = colorResource(R.color.colorTextDark)
+                    textSize = 12f
+                }
             }
             ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
                 setImageResource(R.drawable.ic_chevron_down)
@@ -7744,6 +8264,59 @@ class MainActivity : SkinnedActivity() {
                 updatePadding(horizontal = 4.dp, vertical = 9.dp)
                 isClickable = true
                 isFocusable = true
+                contentDescription = stringResource(R.string.story_action_icons_title)
+                setOnClickListener { showStoryActionIconsDialog(anchor = it) }
+            }
+        ) {
+            LinearLayout(
+                lparams = LayoutParams { weight = 1f },
+                init = { orientation = LinearLayout.VERTICAL }
+            ) {
+                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    text = stringResource(R.string.story_action_icons_title)
+                    textColor = colorResource(R.color.colorTextGray)
+                    textSize = 15f
+                }
+                TextView(
+                    lparams = LayoutParams(widthMatchParent = true) {
+                        topMargin = 4.dp
+                    }
+                ) {
+                    storyActionIconsSummaryView = this
+                    alpha = 0.68f
+                    text = storyActionIconsSummary()
+                    textColor = colorResource(R.color.colorTextDark)
+                    textSize = 12f
+                }
+                // 供设置项搜索命中子项：只做索引，不显示。
+                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    visibility = View.GONE
+                    text = StoryActionIcon.entries.joinToString(separator = " ") {
+                        stringResource(storyActionIconLabel(it))
+                    }
+                    textColor = colorResource(R.color.colorTextDark)
+                    textSize = 12f
+                }
+            }
+            ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                setImageResource(R.drawable.ic_chevron_down)
+                rotation = -90f
+                alpha = 0.8f
+                imageTintList = stateColorResource(R.color.colorTextGray)
+            }
+        }
+        LinearLayout(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 14.dp
+                bottomMargin = 8.dp
+            },
+            init = {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = selfRippleBackground(10f)
+                updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                isClickable = true
+                isFocusable = true
                 contentDescription = stringResource(
                     R.string.video_relate_filter_settings
                 )
@@ -7973,6 +8546,81 @@ class MainActivity : SkinnedActivity() {
             text = stringResource(R.string.remove_vip_colorful_danmaku_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
+        }
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED, directToggle = true)
+            settingsDestinations.bind(SettingsCatalog.ID_DANMAKU_SEMANTIC_FILTER, this)
+            text = stringResource(R.string.danmaku_semantic_filter)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = danmakuSemanticFilterEnabled
+            setOnCheckedChangeListener { _, checked ->
+                danmakuSemanticFilterEnabled = checked
+                writeSemanticSwitch(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED, checked)
+            }
+        }
+        semanticFilterDetails(SemanticSurface.DANMAKU, SettingsCatalog.ID_DANMAKU_SEMANTIC_RULES, R.string.danmaku_semantic_filter_tip)
+    }
+
+    private fun writeSemanticSwitch(key: String, checked: Boolean) {
+        runCatching { prefs().edit { putBoolean(key, checked) } }.onFailure { throwable ->
+            Log.e("BilibiliInnocentLab", "write semantic filter switch failed", throwable)
+        }
+    }
+
+    /**
+     * 智能过滤（JEV）开关下方的说明与「屏蔽类型」勾选入口，四个过滤面共用。
+     * 开关本身在各调用点按常规写明（常用收藏护栏要求开关与初值字段一一对应）；
+     * JEV 本身（Key / 地址 / 灵敏度 / 首屏等待）只在实验性功能 → 兼容配置一次。
+     */
+    @com.highcapable.hikage.annotation.Hikagable
+    private fun Hikage.Performer<NativeLinearLayout.LayoutParams>.semanticFilterDetails(
+        surface: SemanticSurface,
+        rulesSettingId: String,
+        tipRes: Int
+    ) {
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(tipRes)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+            settingsDestinations.bind(rulesSettingId, this)
+            settingsDestinations.bind(SettingsCatalog.semanticCustomRulesId(surface), this)
+            text = semanticRulesEntryText(surface)
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { view ->
+                showSemanticRulesDialog(surface, anchor = view) { text = semanticRulesEntryText(surface) }
+            }
+        }
+        // 判定来源：自动分流或固定某个来源（来源本身在 实验性功能 → 兼容 → AI 语义判定 里填）。
+        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 2.dp }) {
+            settingsDestinations.bind(SettingsCatalog.semanticRouteId(surface), this)
+            text = semanticRouteEntryText(surface)
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { view ->
+                showSemanticRouteDialog(surface, anchor = view) { text = semanticRouteEntryText(surface) }
+            }
         }
     }
 
@@ -8505,6 +9153,25 @@ class MainActivity : SkinnedActivity() {
             text = stringResource(R.string.dynamic_content_settings)
             applyAdvancedSubsectionStyle()
         }
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED, directToggle = true)
+            settingsDestinations.bind(SettingsCatalog.ID_DYNAMIC_SEMANTIC_FILTER, this)
+            text = stringResource(R.string.dynamic_semantic_filter)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = dynamicSemanticFilterEnabled
+            setOnCheckedChangeListener { _, checked ->
+                dynamicSemanticFilterEnabled = checked
+                writeSemanticSwitch(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED, checked)
+            }
+        }
+        semanticFilterDetails(SemanticSurface.DYNAMIC, SettingsCatalog.ID_DYNAMIC_SEMANTIC_RULES, R.string.dynamic_semantic_filter_tip)
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = 12.dp
@@ -9118,6 +9785,25 @@ class MainActivity : SkinnedActivity() {
         }
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED, directToggle = true)
+            settingsDestinations.bind(SettingsCatalog.ID_VIDEO_SEMANTIC_FILTER, this)
+            text = stringResource(R.string.video_semantic_filter)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = videoSemanticFilterEnabled
+            setOnCheckedChangeListener { _, checked ->
+                videoSemanticFilterEnabled = checked
+                writeSemanticSwitch(FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED, checked)
+            }
+        }
+        semanticFilterDetails(SemanticSurface.VIDEO, SettingsCatalog.ID_VIDEO_SEMANTIC_RULES, R.string.video_semantic_filter_tip)
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = 8.dp
                 bottomMargin = 5.dp
             }
@@ -9215,42 +9901,26 @@ class MainActivity : SkinnedActivity() {
             textSize = 12f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
-                topMargin = 12.dp
-                bottomMargin = 5.dp
-            }
-        ) {
-            bindFavoriteSwitch(this, FeaturePreferences.SPLASH_AUTO_NIGHT, directToggle = true)
-            text = stringResource(R.string.splash_auto_night)
+        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+            bindFavoriteSwitch(this, FeaturePreferences.BRAND_SPLASH_SKIP, directToggle = true)
+            text = stringResource(R.string.brand_splash_skip)
             isAllCaps = false
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
-            isChecked = splashAutoNight
+            isChecked = brandSplashSkip
             setOnCheckedChangeListener { _, checked ->
-                splashAutoNight = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.SPLASH_AUTO_NIGHT,
-                            checked
-                        )
+                runCatching { prefs().edit { putBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, checked) } }
+                    .onSuccess { brandSplashSkip = checked }
+                    .onFailure { throwable ->
+                        Log.e("BilibiliInnocentLab", "write brand splash skip prefs failed", throwable)
+                        isChecked = brandSplashSkip
                     }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write splash auto night prefs failed",
-                        throwable
-                    )
-                }
             }
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
-            text = stringResource(R.string.splash_auto_night_tip)
+            text = stringResource(R.string.brand_splash_skip_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
@@ -9737,45 +10407,6 @@ class MainActivity : SkinnedActivity() {
                 textSize = 12f
             }
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
-                topMargin = 12.dp
-                bottomMargin = 5.dp
-            }
-        ) {
-            bindFavoriteSwitch(this, FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, directToggle = true)
-            text = stringResource(R.string.transparent_player_status_bar)
-            isAllCaps = false
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            isChecked = transparentPlayerStatusBar
-            setOnCheckedChangeListener { _, isChecked ->
-                transparentPlayerStatusBar = isChecked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
-                            isChecked
-                        )
-                    }
-                }.onFailure { t ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write player status bar prefs failed",
-                        t
-                    )
-                }
-            }
-        }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.transparent_player_status_bar_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
-        }
         TextView(
             lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
@@ -9879,6 +10510,27 @@ class MainActivity : SkinnedActivity() {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.player_speed_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) {
+            topMargin = 14.dp
+            bottomMargin = 5.dp
+        }) {
+            text = stringResource(R.string.player_sponsor_block)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = playerSponsorBlockEnabled
+            setOnCheckedChangeListener { _, checked ->
+                playerSponsorBlockEnabled = checked
+                prefs().edit { putBoolean(FeaturePreferences.PLAYER_SPONSOR_BLOCK_ENABLED, checked) }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.player_sponsor_block_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
@@ -10055,6 +10707,91 @@ class MainActivity : SkinnedActivity() {
             text = stringResource(R.string.recommendation_blocklist_manage_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
+        }
+        // 强力模式是总开关下面的二级勾选面板入口，总开关关着时置灰（宿主侧它只在总开关开着时生效）。
+        // 面板里两项独立：屏蔽发布者；获取 access_key（推荐预检，实际生效还要通用授权）。
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, directToggle = true)
+            text = stringResource(R.string.block_ai_declared_videos)
+            settingsDestinations.bind(SettingsCatalog.ID_AI_DECLARED_VIDEOS_BLOCKED, this)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = blockAiDeclaredVideos
+            setOnCheckedChangeListener { _, isChecked ->
+                blockAiDeclaredVideos = isChecked
+                updateAiStrongModeEntry()
+                runCatching {
+                    prefs().edit {
+                        putBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, isChecked)
+                    }
+                }.onFailure { t ->
+                    Log.e("BilibiliInnocentLab", "write ai declared videos prefs failed", t)
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.block_ai_declared_videos_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        LinearLayout(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 8.dp
+                bottomMargin = 5.dp
+            },
+            init = {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = selfRippleBackground(10f)
+                updatePadding(horizontal = 4.dp, vertical = 9.dp)
+                isClickable = true
+                isFocusable = true
+                contentDescription = stringResource(R.string.block_ai_declared_videos_strong_mode)
+                settingsDestinations.bind(SettingsCatalog.ID_AI_DECLARED_VIDEOS_STRONG_MODE, this)
+                settingsDestinations.bind(SettingsCatalog.ID_AI_DECLARED_VIDEOS_PRECHECK, this)
+                setOnClickListener { showAiStrongModeDialog(it) }
+                aiStrongModeEntry = this
+                isEnabled = blockAiDeclaredVideos
+                alpha = if (blockAiDeclaredVideos) 1f else 0.5f
+            }
+        ) {
+            LinearLayout(
+                lparams = LayoutParams { weight = 1f },
+                init = { orientation = LinearLayout.VERTICAL }
+            ) {
+                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    text = stringResource(R.string.block_ai_declared_videos_strong_mode)
+                    textColor = colorResource(R.color.colorTextGray)
+                    textSize = 15f
+                }
+                TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+                    aiStrongModeSummaryView = this
+                    alpha = 0.68f
+                    text = aiStrongModeSummary()
+                    textColor = colorResource(R.color.colorTextDark)
+                    textSize = 12f
+                }
+                // 供设置搜索命中面板里的两项。
+                TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    visibility = View.GONE
+                    text = listOf(R.string.ai_declared_block_author, R.string.ai_declared_precheck)
+                        .joinToString(" · ") { stringResource(it) }
+                }
+            }
+            ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+                setImageResource(R.drawable.ic_chevron_down)
+                rotation = -90f
+                alpha = 0.8f
+                imageTintList = stateColorResource(R.color.colorTextGray)
+            }
         }
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {

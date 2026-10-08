@@ -27,6 +27,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
@@ -38,9 +39,18 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreato
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMethodHook
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentNativeBindingCatalog
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFamilyCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeCopyBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentNativeSupplementBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentLegacyCopyBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyClipboardWrite
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockComponentLibraryFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ComponentLibraryPoolMatcher
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostBottomBarFxFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostVideoCardStyleFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostTopBarFxFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BvToAvFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
@@ -50,6 +60,16 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DynamicTabsFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticJudge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSettings
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticDiskCleanup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSurface
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticPresets
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticRoute
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticRule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticCustomRule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticBackend
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailAppPromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ExternalBrowserFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
@@ -81,6 +101,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailViewPurifyPolic
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailModulePurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedModulePurifyPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.AiDeclaredVideoFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerInteractiveOverlayFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerEndPageRecommendFeatureInstaller
@@ -90,14 +111,20 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchPurifyFeatureIn
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SearchHomeRecommendFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SharePurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryActionIcon
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryActionIconsFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAdFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SplashAutoNightFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BrandSplashSkipFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BrandSplashCustomFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemMediaNotificationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCodecForceFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityOptions
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SubtitleExportFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -160,14 +187,46 @@ class HookEntry : XposedModule() {
         @Volatile
         private var hostRecyclerViewClass: Class<*>? = null
 
+        /** 强力模式 · 获取 access_key（推荐预检）的实际生效值：必须同时有通用授权。 */
+        private fun aiDeclaredPrecheckEffective(prefs: HookConfigSource): Boolean =
+            com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.AiDeclaredVideoPolicy.effectivePrecheck(
+                precheck = prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_PRECHECK, false),
+                accessKeyAuthorized = prefs.getBoolean(FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED, false)
+            )
+
         private fun frameworkLog(message: String, throwable: Throwable? = null) {
             if (throwable == null) ModernHookLog.info(message)
             else ModernHookLog.error(message, throwable)
         }
 
         // 自由复制（高版本 9.x：评论正文渲染 handler，持有 CommentItem + 评论正文 TextView）
-        const val CLASS_COMMENT_HANDLER_V2 = "com.bilibili.app.comment3.ui.nextholderexp3.handle.CommentNextExperiment3ContentRichTextHandler"
+        const val CLASS_COMMENT_HANDLER_V2 = CommentNativeBindingCatalog.EXP3
         const val METHOD_COMMENT_BIND_V2 = "b"
+
+        /** nextholder 管线（非 exp3）的正文 handler：`b(Zk.Q)/c(Zk.Q)` 绑定，
+         * 字段 h 存 CommentItem、binding.a 是正文容器根。 */
+        const val CLASS_COMMENT_HANDLER_NEXT =
+            CommentNativeBindingCatalog.NEXT
+
+        /** 8.63.0 及同类早期版本：非混淆 handler（holder.J 管线）。 */
+        const val CLASS_COMMENT_HANDLER_LEGACY =
+            CommentNativeBindingCatalog.LEGACY
+
+        /**
+         * 9.x 评论正文三级管线并存（9.13.0 `comment3.ui.adapter.a.onCreateViewHolder`
+         * 实解确认）：DeviceDecision `comment.next_appearance_experiment_3` 命中 →
+         * kl.*(exp3)，`comment.next_appearance` 命中 → il.*(nextholder)，
+         * 否则 → holder.J(legacy)。
+         * 实际生效族由宿主实验下发决定、同版本不同用户不同路，只挂单类会漏挂其余
+         * 管线（9.13.0 实测命中 nextholder，官方长按监听无人接管弹官方面板）。
+         * 因此所有存在的 handler 类全挂共享 bindHook：afterHook 幂等，未启用族的
+         * hook 常驻不触发，实验组回切/共存时无需重启即可接管。
+         */
+        private val COMMENT_HIGH_HANDLER_CLASSES = listOf(
+            CLASS_COMMENT_HANDLER_V2,
+            CLASS_COMMENT_HANDLER_NEXT,
+            CLASS_COMMENT_HANDLER_LEGACY
+        )
 
         /** ModernHookParam 内保存本次同步绑定快照的私有 key。 */
         private const val COMMENT_BIND_SNAPSHOT_KEY =
@@ -262,11 +321,7 @@ class HookEntry : XposedModule() {
         @Volatile
         private var descTouchObservedAtMs = 0L
 
-        @Volatile
-        private var descTouchDownX = 0f
-
-        @Volatile
-        private var descTouchDownY = 0f
+        private val descCopyGesture = DescriptionCopyGesture()
 
         /** 长按是否已被 OnLongClickListener 路径处理（防双重弹窗） */
         @Volatile
@@ -398,15 +453,69 @@ class HookEntry : XposedModule() {
 
         private fun clearDescTouchSession(resetHandled: Boolean = true) {
             mainHandlerRef?.removeCallbacks(descLongPressRunnable)
+            if (resetHandled) {
+                descTouchedView?.let { view -> runCatching { view.cancelLongPress() } }
+            }
             descTouchedView = null
             descTouchDownMs = 0L
             descTouchObservedAtMs = 0L
-            if (resetHandled) descLongPressHandled = false
+            if (resetHandled) {
+                descLongPressHandled = false
+                descCopyGesture.reset()
+            }
         }
 
-        /** 简介长按判定（DOWN 后 500ms 触发，长按状态下弹气泡；MOVE/UP 时移除） */
+        /** 让出给滑动时同时取消模块、系统和宿主自实现长按，保留本次取消身份到终止事件。 */
+        private fun cancelDescLongPressCandidate() {
+            mainHandlerRef?.removeCallbacks(descLongPressRunnable)
+            descTouchedView?.let { view -> runCatching { view.cancelLongPress() } }
+            descTouchedView = null
+            descTouchDownMs = 0L
+            descTouchObservedAtMs = 0L
+        }
+
+        /** 只观察当前简介手势；非简介节点收到同一流的移动/多指/CANCEL 时也能及时取消。 */
+        private fun observeDescTouch(ev: android.view.MotionEvent) {
+            if (!descCopyGesture.matches(ev.downTime) || !descCopyGesture.isPending) return
+            val action = ev.actionMasked
+            if (action == android.view.MotionEvent.ACTION_CANCEL ||
+                action == android.view.MotionEvent.ACTION_POINTER_DOWN ||
+                action == android.view.MotionEvent.ACTION_POINTER_UP
+            ) {
+                if (descCopyGesture.cancel(ev.downTime)) cancelDescLongPressCandidate()
+                return
+            }
+            if (action != android.view.MotionEvent.ACTION_MOVE &&
+                action != android.view.MotionEvent.ACTION_UP
+            ) return
+            val index = ev.findPointerIndex(descCopyGesture.pointerId)
+            if (index < 0 || ev.pointerCount != 1) {
+                if (descCopyGesture.cancel(ev.downTime)) cancelDescLongPressCandidate()
+                return
+            }
+            // rawX/Y 在 minSdk 27 仅提供首指坐标；单指流用偏移换算历史点，避免引入 API 29 调用。
+            val offsetX = ev.rawX - ev.x
+            val offsetY = ev.rawY - ev.y
+            for (history in 0 until ev.historySize) {
+                if (descCopyGesture.sample(ev.downTime, ev.getPointerId(index), ev.pointerCount,
+                        ev.getHistoricalX(index, history) + offsetX,
+                        ev.getHistoricalY(index, history) + offsetY)
+                ) {
+                    cancelDescLongPressCandidate()
+                    return
+                }
+            }
+            if (descCopyGesture.sample(ev.downTime, ev.getPointerId(index), ev.pointerCount,
+                    ev.getX(index) + offsetX, ev.getY(index) + offsetY)
+            ) cancelDescLongPressCandidate()
+        }
+
+        /** 简介长按判定（实际处理 DOWN 后 400ms；与监听器、UP 共用同一候选）。 */
         private val descLongPressRunnable = HostThreadGuard.runnable("free_copy.desc_long_press") {
-            if (descLongPressHandled) return@runnable
+            if (descLongPressHandled || !descCopyGesture.isPending ||
+                android.os.SystemClock.uptimeMillis() - descTouchObservedAtMs <
+                    DescriptionCopyGesture.LONG_PRESS_MILLIS
+            ) return@runnable
             val v = descTouchedView ?: run {
                 clearDescTouchSession(resetHandled = true)
                 return@runnable
@@ -416,13 +525,7 @@ class HookEntry : XposedModule() {
                 clearDescTouchSession(resetHandled = true)
                 return@runnable
             }
-            descLongPressHandled = true
-            runCatching {
-                // 先弹泡（清 touch 标志）再 Vibrator 直震——官方震动由
-                // performHapticFeedback hook 在长按窗口内拦下，只保留我们这一次
-                showFreeCopyPopup(v, extractDescText(v))
-                hapticFeedback(v)
-            }
+            sharedFreeCopyListener.onLongClick(v)
         }
 
         /**
@@ -520,6 +623,7 @@ class HookEntry : XposedModule() {
             ourBubbleDialogRef = null
             commentLongPressHandled = false
             descLongPressHandled = false
+            descCopyGesture.finishHandled()
         }
 
         /**
@@ -532,6 +636,9 @@ class HookEntry : XposedModule() {
             val isDesc = descViewId != View.NO_ID && view.id == descViewId
             if (isDesc && !runtimeDescriptionFreeCopyEnabled) return@OnLongClickListener false
             if (!isDesc && !runtimeCommentFreeCopyEnabled) return@OnLongClickListener false
+            if (isDesc && (!view.isAttachedToWindow || !view.isShown ||
+                    view.windowVisibility != View.VISIBLE)
+            ) return@OnLongClickListener false
             // ViewHolder 从评论复用为“热门评论/最新评论”头部后，旧共享监听器可能暂时
             // 仍挂在 View 上。先验证评论身份，避免短点头部文本触发自由复制或吞掉点击。
             if (!isDesc && !isRegisteredCommentTreeMember(view)) {
@@ -539,12 +646,18 @@ class HookEntry : XposedModule() {
             }
             if (isDesc && descLongPressHandled) return@OnLongClickListener true
             if (!isDesc && commentLongPressHandled) return@OnLongClickListener true
+            if (isDesc && descCopyGesture.isTracking &&
+                (descTouchedView !== view || !descCopyGesture.isPending)
+            ) return@OnLongClickListener false
             val resolved = if (isDesc) {
                 FreeCopyContent(extractDescText(view))
             } else {
                 resolveCommentTextAtInteraction(view)
             } ?: return@OnLongClickListener false
             if (!isValidFreeCopyText(resolved.displayText)) return@OnLongClickListener false
+            if (isDesc && descCopyGesture.isTracking &&
+                !descCopyGesture.claim(descTouchDownMs, android.os.SystemClock.uptimeMillis())
+            ) return@OnLongClickListener false
             HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.OBSERVED)
             HostRuntimeDiagnosticsBridge.record(
                 if (isDesc) "free_copy_description_enabled" else "free_copy_comment_enabled",
@@ -635,6 +748,11 @@ class HookEntry : XposedModule() {
         @Volatile
         private var commentSecondaryMessageId = View.NO_ID
 
+        /** nextholder / 旧 holder / phoenix 评论正文 id（exp3 用 primary/secondary_message，
+         * 其余管线用 comment_message，9.13.0 布局实解确认）。 */
+        @Volatile
+        private var commentNextMessageId = View.NO_ID
+
         /**
          * 一个 DOWN 会依次经过评论根、按钮容器和最深子 View。命中 more_button 后用
          * downTime 标记整次手势为宿主直通，避免其子 View 又重新建立评论长按会话。
@@ -683,8 +801,16 @@ class HookEntry : XposedModule() {
                 }.getOrDefault(0)
                 commentSecondaryMessageId = secondaryId
             }
+            var nextId = commentNextMessageId
+            if (nextId == View.NO_ID) {
+                nextId = runCatching {
+                    view.resources.getIdentifier("comment_message", "id", TARGET_PACKAGE)
+                }.getOrDefault(0)
+                commentNextMessageId = nextId
+            }
             return (primaryId > 0 && view.id == primaryId) ||
-                (secondaryId > 0 && view.id == secondaryId)
+                (secondaryId > 0 && view.id == secondaryId) ||
+                (nextId > 0 && view.id == nextId)
         }
 
         private fun clearCommentTouchSession(resetHandled: Boolean = true) {
@@ -822,7 +948,9 @@ class HookEntry : XposedModule() {
                     cur = cur.parent as? View
                 }
             }
-            val state = semanticState ?: fallbackState
+            val image = additionalNativeCopy?.imageContent(v)
+            val state = image?.let { CommentRootState(it.first, false, true, it.second, 0L) }
+                ?: semanticState ?: fallbackState
             val renderedText = extractCommentText(registeredRoot ?: v)
             val visibleText = renderedText
                 ?.let(::snapshotCommentText)
@@ -1431,6 +1559,7 @@ class HookEntry : XposedModule() {
         @Volatile private var cRichTextAField: java.lang.reflect.Field? = null     // k.a（高版本 raw 字段）
         private val cHandlerViewFieldByClass =
             java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
+        @Volatile private var additionalNativeCopy: CommentNativeSupplementBridge? = null
         /** 优先从当前绑定方法实参取得 CommentItem；不同方法下标独立，杜绝读取 Handler
          * 可变字段时被 RecyclerView 的下一条绑定覆盖。无 CommentItem 实参（9.8.0 d/e）
          * 才回退 Handler 字段。 */
@@ -1657,6 +1786,17 @@ class HookEntry : XposedModule() {
         internal fun showReplyTraceBubble(anchor: View, rawText: CharSequence) =
             showFreeCopyPopup(anchor, FreeCopyContent(rawText))
 
+        /** 仅由已核对的评论模型桥调用；不把整个 Compose 窗口登记成评论触摸根。 */
+        internal fun showCommentModelBubble(anchor: View, rawText: String): Boolean {
+            if (!runtimeCommentFreeCopyEnabled || rawText.isBlank() ||
+                !anchor.isAttachedToWindow || !anchor.isShown || !anchor.hasWindowFocus()
+            ) return false
+            val previous = ourBubbleDialogRef?.get()
+            showFreeCopyPopup(anchor, FreeCopyContent(rawText))
+            val current = ourBubbleDialogRef?.get()
+            return current !== previous && current?.isShowing == true
+        }
+
         /** 脉络面板关闭或跨页迁移时收尾由脉络弹出的气泡，防孤儿弹窗；幂等。 */
         internal fun dismissReplyTraceBubbleIfShowing() {
             if (!isOurBubbleShowing()) return
@@ -1807,7 +1947,8 @@ class HookEntry : XposedModule() {
                 // 防超出顶部：上移后仍超出则贴顶（贴顶后若 bubbleH 超过可用区——
                 // maxLines=12 限高下几乎不可达——顶部优先，底部让位）
                 if (bubbleY < dp(8)) bubbleY = dp(8).toFloat()
-                logError("fc_loc", "[BIL] 气泡定位: anchor=${anchor.javaClass.simpleName} visible=$anchorVisible loc=(${loc[0]},${loc[1]}) h=${anchor.height} → bubble=(${bubbleX.toInt()},${bubbleY.toInt()}) h=$bubbleH safe=$safeBottom")
+                // 定位成功是正常路径，只在完整档留痕；error 通道精简档也输出，会稀释真实错误。
+                logInfo("fc_loc", "[BIL] 气泡定位: anchor=${anchor.javaClass.simpleName} visible=$anchorVisible loc=(${loc[0]},${loc[1]}) h=${anchor.height} → bubble=(${bubbleX.toInt()},${bubbleY.toInt()}) h=$bubbleH safe=$safeBottom")
 
                 // 全屏透明容器（接收点击外部关闭 + 承载气泡绝对定位）
                 val fullscreen = android.widget.FrameLayout(act).apply {
@@ -2641,26 +2782,75 @@ class HookEntry : XposedModule() {
             }
             // 局部遮蔽把功能安装链统一约束在只读配置接口上。
             val prefs: HookConfigSource = hookConfig
+            // JEV 语义判定的共享配置（实验性功能 → 兼容）；Key 为空或地址非法时为 null，任何过滤面都不建判定器。
+            // 硬盘缓存根目录要等宿主 Context 就绪后补上（见 attachedContext 处）。
+            var semanticSettings = SemanticSettings.from(
+                apiKey = prefs.getString(RemoteHookConfigContract.KEY_SEMANTIC_JEV_API_KEY, "").orEmpty(),
+                endpoint = prefs.getString(FeaturePreferences.SEMANTIC_JEV_ENDPOINT, "").orEmpty(),
+                sensitivity = prefs.getString(FeaturePreferences.SEMANTIC_JEV_SENSITIVITY, "").orEmpty(),
+                waitFirstScreen = prefs.getBoolean(FeaturePreferences.SEMANTIC_JEV_WAIT_FIRST_SCREEN, false),
+                cacheDays = prefs.getInt(FeaturePreferences.SEMANTIC_JEV_CACHE_DAYS, SemanticSettings.DEFAULT_CACHE_DAYS),
+                provider = prefs.getString(FeaturePreferences.SEMANTIC_JEV_PROVIDER, "jev"),
+                model = prefs.getString(FeaturePreferences.SEMANTIC_JEV_MODEL, ""),
+                timeoutMs = prefs.getInt(FeaturePreferences.SEMANTIC_JEV_TIMEOUT_MS, 0),
+                extraSources = (2..SemanticSource.MAX_SOURCES).mapNotNull { index ->
+                    val (providerKey, endpointKey, modelKey) = FeaturePreferences.semanticSourceKeys(index)
+                    SemanticSource.from(
+                        index = index,
+                        apiKey = prefs.getString(RemoteHookConfigContract.semanticApiKey(index), "").orEmpty(),
+                        endpoint = prefs.getString(endpointKey, "").orEmpty(),
+                        provider = prefs.getString(providerKey, SemanticBackend.JEV).orEmpty(),
+                        model = prefs.getString(modelKey, "").orEmpty()
+                    )
+                },
+                guidance = prefs.getString(FeaturePreferences.SEMANTIC_JEV_GUIDANCE, "").orEmpty()
+            )
+            semanticSettings?.let { SemanticJudge.configureConcurrency(it.sources.size) }
+            /** 某个过滤面勾选的预设 + 启用的自定义类型。 */
+            fun semanticRules(rulesKey: String, surface: SemanticSurface): List<SemanticRule> =
+                SemanticPresets.selected(surface, prefs.getString(rulesKey, SemanticPresets.defaultSelection(surface)).orEmpty()) +
+                    SemanticCustomRule.parse(prefs.getString(FeaturePreferences.semanticCustomRulesKey(surface), "").orEmpty())
+                        .filter { it.enabled }.map { it.toRule() }
+            /** 某个过滤面在本次启动是否启用（开关开、Key 有效、至少勾了一类）。 */
+            fun semanticActive(enabledKey: String, rulesKey: String, surface: SemanticSurface): Boolean =
+                semanticSettings != null && prefs.getBoolean(enabledKey, false) && semanticRules(rulesKey, surface).isNotEmpty()
+            /** 某个过滤面的判定器：开关关、Key 无效或一个类型都没勾选时为 null。 */
+            fun semanticJudge(
+                enabledKey: String,
+                rulesKey: String,
+                surface: SemanticSurface,
+                batchSize: Int = SemanticJudge.MAX_BATCH,
+                timeoutMs: Int = SemanticJudge.DEFAULT_TIMEOUT_MS
+            ): SemanticJudge? {
+                val settings = semanticSettings ?: return null
+                if (!prefs.getBoolean(enabledKey, false)) return null
+                return settings.judge(
+                    surface,
+                    semanticRules(rulesKey, surface),
+                    batchSize,
+                    timeoutMs,
+                    route = prefs.getString(FeaturePreferences.semanticRouteKey(surface), SemanticRoute.AUTO)
+                )
+            }
             val versionAdapterResetTimestamp = hookConfig.getLong(
                 RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP,
                 0L
             )
 
-            // 每个宿主进程只做一次实时结构探测。实时结果始终优先；只有实时存在缺口时，
-            // 才让同一宿主指纹且通过结构校验的缓存补位，使后台 DEX 适配结果在下次冷启动生效。
+            // 每个宿主进程只做一次实时结构探测。实时结果始终优先；实时存在的每个缺口
+            // （不限更新拦截，还包括画质/回复脉络的 DexKit 兜底点）都由同一宿主指纹且
+            // 通过结构校验的缓存补位，使后台 DEX 适配结果在下次冷启动生效。
+            // 不能用"更新拦截已定位"当整份合并的开关：那会让实时候选表命中的宿主永远
+            // 拿不到缓存里的画质/脉络兜底实现（DexKit 自 ecc63f5 起兜底三个点）。
             val startupCache by lazy(LazyThreadSafetyMode.NONE) {
                 VersionAdapter.readStartupCache(authorizationContext, versionAdapterResetTimestamp)
             }
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
                 val runtime = biliClassLoader?.let { VersionAdapter.quickLocate(it) }
-                if (runtime?.blockUpdate != null) {
-                    runtime
-                } else {
-                    VersionAdapter.mergeRuntimeWithCached(
-                        runtime = runtime,
-                        cached = startupCache.cached
-                    )
-                }
+                VersionAdapter.mergeRuntimeWithCached(
+                    runtime = runtime,
+                    cached = startupCache.cached
+                )
             }
 
             // 读取日志开关 + 详细度档位（默认：开启 + 完整）
@@ -2771,7 +2961,8 @@ class HookEntry : XposedModule() {
                     { record -> HostRuntimeDiagnosticsBridge.recordInstallation(record) }
                 } else {
                     null
-                }
+                },
+                hostContext = authorizationContext.applicationContext ?: authorizationContext
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
 
@@ -2779,6 +2970,41 @@ class HookEntry : XposedModule() {
 
             // 已授权安装链所需的宿主 Context；只在当前调用栈使用，不进入长期缓存。
             val attachedContext = authorizationContext.applicationContext ?: authorizationContext
+            // 判定结果硬盘缓存：宿主私有 files/bil_semantic/<面>.bin。启动时先在后台删掉未启用面的文件，
+            // 保证"关闭 → 重启"后磁盘上没有任何残留判定。
+            val semanticStoreRoot = runCatching { attachedContext.filesDir }.getOrNull()
+            if (semanticStoreRoot != null) {
+                semanticSettings = semanticSettings?.copy(storeRoot = semanticStoreRoot)
+                val active = buildSet {
+                    if (semanticActive(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED,
+                            FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_RULES, SemanticSurface.DYNAMIC)) add(SemanticSurface.DYNAMIC)
+                    if (semanticActive(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED,
+                            FeaturePreferences.DANMAKU_SEMANTIC_FILTER_RULES, SemanticSurface.DANMAKU)) add(SemanticSurface.DANMAKU)
+                    if (semanticActive(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED,
+                            FeaturePreferences.COMMENT_SEMANTIC_FILTER_RULES, SemanticSurface.COMMENT)) add(SemanticSurface.COMMENT)
+                    if (semanticActive(FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED,
+                            FeaturePreferences.VIDEO_SEMANTIC_FILTER_RULES, SemanticSurface.VIDEO)) add(SemanticSurface.VIDEO)
+                }
+                SemanticJudge.submitBackground(Runnable {
+                    com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard.run("semantic_disk_cleanup") {
+                        SemanticDiskCleanup.run(semanticStoreRoot, active)
+                        // 已探明的请求写法 / 分批上限：读回来，避免每次重启都重新试错。
+                        if (active.isNotEmpty()) SemanticJudge.attachLearnedStore(semanticStoreRoot)
+                    }
+                })
+            }
+            // 首页推荐与相关推荐共用同一个判定器：规则相同，同一标题在两处只判一次。
+            val videoSemanticJudge = semanticJudge(
+                FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED,
+                FeaturePreferences.VIDEO_SEMANTIC_FILTER_RULES,
+                SemanticSurface.VIDEO
+            )
+            // 智能过滤的 debug 观测日志目录（宿主私有 files）；release 为 null，不写任何文件。
+            val semanticLogDir = if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) {
+                runCatching { attachedContext.filesDir }.getOrNull()
+            } else {
+                null
+            }
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -2839,6 +3065,17 @@ class HookEntry : XposedModule() {
                         ),
                         hideSearchDefaultWord = prefs.getBoolean(
                             FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
+                            false
+                        ),
+                        points = hostAdaptResult?.homeTopBar
+                    ),
+                    HostTopBarFxFeatureInstaller(
+                        liquidGlass = prefs.getBoolean(
+                            FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS,
+                            false
+                        ),
+                        touchGlow = prefs.getBoolean(
+                            FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
                             false
                         ),
                         points = hostAdaptResult?.homeTopBar
@@ -2968,7 +3205,14 @@ class HookEntry : XposedModule() {
                         removeLiveUpEntries = prefs.getBoolean(
                             FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES,
                             false
-                        )
+                        ),
+                        // 智能过滤动态：开关关闭、Key 为空或地址非法时为 null，不创建判定器。
+                        semanticJudge = semanticJudge(
+                            FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED,
+                            FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_RULES,
+                            SemanticSurface.DYNAMIC
+                        ),
+                        semanticLogDir = semanticLogDir
                     ),
                     SearchHomeRecommendFeatureInstaller(prefs.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false)),
                     SearchPurifyFeatureInstaller(
@@ -3106,7 +3350,17 @@ class HookEntry : XposedModule() {
                         sectionPickEnabled = prefs.getBoolean(
                             FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED,
                             false
-                        )
+                        ),
+                        removeAiDeclared = prefs.getBoolean(
+                            FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS,
+                            false
+                        ),
+                        aiDeclaredStrongMode = prefs.getBoolean(
+                            FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE,
+                            false
+                        ),
+                        semanticJudge = videoSemanticJudge,
+                        semanticLogDir = semanticLogDir
                     )
                 )
             )
@@ -3158,6 +3412,23 @@ class HookEntry : XposedModule() {
                             ""
                         ).orEmpty(),
                         points = hostAdaptResult?.bottomBar
+                    ),
+                    HostBottomBarFxFeatureInstaller(
+                        liquidGlass = prefs.getBoolean(
+                            FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,
+                            false
+                        ),
+                        touchGlow = prefs.getBoolean(
+                            FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
+                            false
+                        ),
+                        points = hostAdaptResult?.bottomBar,
+                        compact = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, false),
+                        iconOnly = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, false)
+                    ),
+                    HostVideoCardStyleFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
+                        radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1)
                     )
                 )
             )
@@ -3214,6 +3485,16 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         points = hostAdaptResult?.storyFeed
+                    )
+                )
+            )
+
+            featureInstallCoordinator.installAll(
+                listOf(
+                    StoryActionIconsFeatureInstaller(
+                        hidden = StoryActionIcon.entries.filterTo(linkedSetOf()) { icon ->
+                            prefs.getBoolean(icon.preferenceKey, false)
+                        }
                     )
                 )
             )
@@ -3282,6 +3563,16 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS,
                             false
                         )
+                    ),
+                    // 与上面的 United 模块净化挂同一对 ViewMoss 方法，但只改 ecode/ecode_config
+                    // 与相关推荐卡，两者互不依赖、各自降级；强力模式只在总开关开着时有意义。
+                    AiDeclaredVideoFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, false),
+                        strongMode = prefs.getBoolean(
+                            FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE,
+                            false
+                        ),
+                        precheck = aiDeclaredPrecheckEffective(prefs)
                     )
                 )
             )
@@ -3376,7 +3667,9 @@ class HookEntry : XposedModule() {
                         ),
                         rawPickedTagIds = prefs.getString(
                             FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS, ""
-                        ).orEmpty()
+                        ).orEmpty(),
+                        semanticJudge = videoSemanticJudge,
+                        semanticLogDir = semanticLogDir
                     )
                 )
             )
@@ -3494,7 +3787,13 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.COMMENT_USER_FILTER_RULES,
                             ""
                         ).orEmpty(),
-                        points = hostAdaptResult?.commentFilter
+                        points = hostAdaptResult?.commentFilter,
+                        semanticJudge = semanticJudge(
+                            FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED,
+                            FeaturePreferences.COMMENT_SEMANTIC_FILTER_RULES,
+                            SemanticSurface.COMMENT
+                        ),
+                        semanticLogDir = semanticLogDir
                     )
                 )
             )
@@ -3513,7 +3812,15 @@ class HookEntry : XposedModule() {
                         removeVipColorful = prefs.getBoolean(
                             FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU,
                             false
-                        )
+                        ),
+                        semanticJudge = semanticJudge(
+                            FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED,
+                            FeaturePreferences.DANMAKU_SEMANTIC_FILTER_RULES,
+                            SemanticSurface.DANMAKU,
+                            batchSize = DanmakuPurifyFeatureInstaller.SEMANTIC_BATCH_SIZE,
+                            timeoutMs = DanmakuPurifyFeatureInstaller.SEMANTIC_TIMEOUT_MS
+                        ),
+                        semanticLogDir = semanticLogDir
                     ),
                     LiveRoomWidgetFeatureInstaller(
                         blockRoomSwitch = prefs.getBoolean(
@@ -3556,6 +3863,10 @@ class HookEntry : XposedModule() {
                         longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),
                         defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0)
                     ),
+                    SponsorBlockFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.PLAYER_SPONSOR_BLOCK_ENABLED, false)
+                    ),
+                    SubtitleExportFeatureInstaller(),
                     SystemMediaNotificationFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
@@ -3568,6 +3879,14 @@ class HookEntry : XposedModule() {
                             false
                         )
                     ),
+                    BrandSplashSkipFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false)
+                    ),
+                    BrandSplashCustomFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false),
+                        context = attachedContext,
+                        renderEnabled = !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false)
+                    ),
                     BvToAvFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SHOW_BV_AS_AV,
@@ -3577,19 +3896,14 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            featureInstallCoordinator.installAll(
-                listOf(
-                    CommentTopologyFeatureInstaller(
-                        enabled = prefs.getBoolean(
-                            FeaturePreferences.REPLY_TOPOLOGY_ENABLED,
-                            false
-                        ),
+            val commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false)
+            val commentTopologyInstaller = CommentTopologyFeatureInstaller(
+                        enabled = commentTopologyEnabled,
                         points = hostAdaptResult?.commentTopology,
                         lowBindPoint = hostAdaptResult?.commentLow,
                         highBindPoint = hostAdaptResult?.commentHigh
                     )
-                )
-            )
+            featureInstallCoordinator.installAll(listOf(commentTopologyInstaller))
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3608,7 +3922,32 @@ class HookEntry : XposedModule() {
             // 三点按钮是 OnClickListener（非长按），头像/昵称等非 TextView 不受影响。
             val commentFreeCopyHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
             val commentFreeCopyBindingVerified = java.util.concurrent.atomic.AtomicBoolean(false)
+            val commentFamilies = CommentFamilyCoverage()
+            val composeCommentCopy = CommentComposeCopyBridge(
+                enabled = { runtimeCommentFreeCopyEnabled },
+                open = ::showCommentModelBubble,
+                observe = { runtimeCommentFreeCopyEnabled || commentTopologyEnabled },
+                onMore = commentTopologyInstaller::rememberComposeMenu,
+                resetMore = commentTopologyInstaller::clearComposeMenu
+            )
+            val nativeSupplement = CommentNativeSupplementBridge(
+                enabled = { runtimeCommentFreeCopyEnabled },
+                bind = { view, raw, source ->
+                    scheduleCommentBind(view, raw, false, rawTrusted = true, commentItem = source)
+                },
+                rawComment = { extractRawCommentTextV2(it) }
+            )
+            additionalNativeCopy = nativeSupplement
+            val legacyCommentCopy = CommentLegacyCopyBridge(biliClassLoader)
+            if (legacyCommentCopy.isApplicable()) commentFamilies.record("comment2", legacyCommentCopy.isReady())
             val installCommentFreeCopyHooks: () -> Unit = installCommentHooks@{
+                // 只开脉络时只观察 Compose 更多操作，不安装关闭状态的原生复制／滚动 Hook。
+                if (!runtimeCommentFreeCopyEnabled) {
+                    runCatching { composeCommentCopy.install(hookEnvironment) }.onFailure {
+                        logError("comment_topology_compose_observer", "[BIL] Compose 评论菜单观察桥安装失败")
+                    }
+                    return@installCommentHooks
+                }
                 if (!commentFreeCopyHooksInstalled.compareAndSet(false, true)) return@installCommentHooks
                 try {
                 // 读版本适配缓存（loadApp 阶段读 B 站 cache 文件，快路径零开销）；
@@ -3664,6 +4003,7 @@ class HookEntry : XposedModule() {
                 val lowHolderCls = adaptResult?.commentLow?.className ?: "com.bilibili.app.comment3.ui.holder.t0"
                 val lowHolderMethod = adaptResult?.commentLow?.methodName ?: "o0"
                 if (classExists(lowHolderCls, biliClassLoader)) {
+                    if (adaptResult?.commentLow != null) commentFamilies.record("low", false)
                     runCatching {
                         hookFirstMethod(lowHolderCls, lowHolderMethod) {
                             after {
@@ -3694,6 +4034,7 @@ class HookEntry : XposedModule() {
                     }.onSuccess {
                         freeCopyOk = true
                         commentFreeCopyBindingVerified.set(true)
+                        commentFamilies.record("low", true)
                     }.onFailure { t ->
                         // 高版本常保留旧 t0 类但删除旧绑定方法；这是残留结构，不应阻断
                         // 后续 CommentNextExperiment3 Handler 的独立注册。
@@ -3703,24 +4044,26 @@ class HookEntry : XposedModule() {
                         )
                     }
                 }
-                // 高版本（9.x）：CommentNextExperiment3ContentRichTextHandler.b（绑定方法，
-                // 持有 CommentItem i + ViewBinding Pj.J），从 CommentItem.f().a 拿 raw。
-                // 8.63.0 漂移：handler 类名变为 comment3.ui.holder.handle.CommentContentRichTextHandler
-                //（绑定方法 G(CommentItem, jv.u, v0, r, int)，字段 h 存 CommentItem）——适配
-                // 缓存自动定位（sv=6 新特征），缓存缺失时入口按「任一候选类存在」判定。
-                // 注意：9.0.0 更新后 b 增加 b(long,boolean) 重载（探测方法），必须按
-                // Method 精确注册 b(Pj.J, boolean)，不能只按名称命中第一个重载。
-                // 双路径并行注册（t0 与 V2 都挂，不互斥）：9.x 的 t0 是残留旧类（o0 已
-                // 不用于评论绑定）、部分版本 V2 类存在但不用于绑定——运行期哪个方法实际
-                // 触发就生效（afterHook 幂等），彻底避免「类存在但方法漂移/残留」的
-                // 版本判定陷阱。
-                val highHandlerExists = classExists(CLASS_COMMENT_HANDLER_V2, biliClassLoader)
-                    || classExists("com.bilibili.app.comment3.ui.holder.handle.CommentContentRichTextHandler", biliClassLoader)
+                // 高版本（9.x）：三级 handler 管线并存（见 COMMENT_HIGH_HANDLER_CLASSES
+                // 注释），全部由同一个 bindHook 接管。适配缓存（commentHigh）的精确
+                // 签名只对命中类走快路径；其余存在的类走「含 ViewBinding 参数」特征
+                // 扫描补挂（nextholder 的 b(Zk.Q)/c(Zk.Q)、legacy 的 G(...) 都满足）。
+                // 注意：9.0.0 更新后 exp3 的 b 增加 b(long,boolean) 重载（探测方法），
+                // 精确注册必须带参数签名，不能只按名称命中第一个重载。
+                // 双路径并行注册（t0 与高版 handler 都挂，不互斥）：9.x 的 t0 是残留旧类
+                // （o0 已不用于评论绑定）——运行期哪个方法实际触发就生效（afterHook
+                // 幂等），彻底避免「类存在但方法漂移/残留」的版本判定陷阱。
+                val highPoint = adaptResult?.commentHigh
+                val highClassNames = java.util.LinkedHashSet<String>()
+                highPoint?.className?.let(highClassNames::add)
+                COMMENT_HIGH_HANDLER_CLASSES.forEach(highClassNames::add)
+                val highHandlerExists = highClassNames.any { classExists(it, biliClassLoader) }
                 if (highHandlerExists) {
+                    for (highCls in highClassNames) {
+                    if (!classExists(highCls, biliClassLoader)) continue
+                    commentFamilies.record(highCls, false)
                     // 类名/方法名/参数签名优先取版本适配缓存（自动定位漂移签名），
-                    // 缓存缺失回退内置 b(Pj.J, boolean) 精确签名
-                    val highPoint = adaptResult?.commentHigh
-                    val highCls = highPoint?.className ?: CLASS_COMMENT_HANDLER_V2
+                    // 仅适配命中的类走缓存签名；其余类跳过缓存直接特征扫描。
                     val highMethod = highPoint?.methodName ?: METHOD_COMMENT_BIND_V2
                     runCatching {
                         val handlerClass = KavaMemberLookup.classOrNull(biliClassLoader, highCls)
@@ -3800,27 +4143,21 @@ class HookEntry : XposedModule() {
                                 )
                             }
                         }
-                        // 注册列表：缓存方法签名优先；再遍历补充所有「含 ViewBinding 参数」
-                        // 的实例候选方法。static h(al.J) 只是 9.8.0 样式工具方法，必须排除；
-                        // d/e 等真实绑定分支都挂，运行期哪个触发就生效（afterHook 幂等）。
+                        // 注册列表：缓存方法签名优先（仅适配命中类）；再遍历补充所有
+                        // 「含 ViewBinding 参数」的实例候选方法。static h(al.J) 只是
+                        // 9.8.0 样式工具方法，必须排除；b/c/d/e/G 等真实绑定分支都挂，
+                        // 运行期哪个触发就生效（afterHook 幂等）。
                         val registered = java.util.HashSet<String>()
-                        val cacheParams = if (highPoint?.paramClassNames != null) {
-                            highPoint.paramClassNames.map {
-                                when (it) {
-                                    "long" -> classOf<Long>()
-                                    "boolean" -> classOf<Boolean>()
-                                    else -> KavaMemberLookup.classOrNull(biliClassLoader, it)
-                                        ?: throw ClassNotFoundException(it)
-                                }
-                            }.toTypedArray()
-                        } else {
-                            arrayOf(
-                                KavaMemberLookup.classOrNull(biliClassLoader, "Pj.J")
-                                    ?: throw ClassNotFoundException("Pj.J"),
-                                classOf<Boolean>()
-                            )
-                        }
-                        runCatching {
+                        // 缓存签名只是"优先"路径：参数类型解析失败（旧代码只认 long/boolean，
+                        // 缓存里出现 int 就抛 ClassNotFoundException 并连带跳过下面的补充注册，
+                        // 2026-09-30 压测日志每次启动都有）只记一条日志，补充注册照常进行。
+                        val useCachedSignature =
+                            highCls == highPoint?.className ||
+                                (highPoint == null && highCls == CLASS_COMMENT_HANDLER_V2)
+                        if (useCachedSignature) runCatching {
+                            val cachedNames = highPoint?.paramClassNames ?: listOf("Pj.J", "boolean")
+                            val cacheParams = hookPointRegistry.resolveParameterClasses(cachedNames)
+                                ?: throw ClassNotFoundException(cachedNames.joinToString(","))
                             val method = hookPointRegistry.resolveExact(
                                 "free-copy:comment-high:cached",
                                 handlerClass,
@@ -3831,7 +4168,7 @@ class HookEntry : XposedModule() {
                             registered.add("$highMethod${cacheParams.joinToString(",") { it.name }}")
                             commentFreeCopyBindingVerified.set(true)
                         }.onFailure { t ->
-                            logError("free_copy_v2_err", "[BIL] 9.x 评论 hook 注册失败(缓存签名): $t")
+                            logError("free_copy_v2_err:$highCls", "[BIL] 9.x 评论 hook 注册失败(缓存签名): $t")
                         }
                         // 补充注册：遍历所有含 ViewBinding 参数的方法（与缓存方法去重）。
                         // 参数上限 5（8.63.0 的 G 有 5 参）——含 ViewBinding 参数的方法
@@ -3857,12 +4194,55 @@ class HookEntry : XposedModule() {
                                 commentFreeCopyBindingVerified.set(true)
                             }
                         }
-                        logInfo("free_copy_ok_v2", "[BIL] 自由复制 hook 已注册（9.x ${registered.joinToString(", ") { it }}）")
+                        if (registered.isEmpty()) {
+                            // 类存在但一个绑定方法都没挂上：不能算成功，否则该管线
+                            // 静默失效（9.13.0 nextholder 漏挂的同类事故）。
+                            logError(
+                                "free_copy_v2_err:$highCls",
+                                "[BIL] 9.x 评论 handler 无可用绑定方法: $highCls"
+                            )
+                        } else {
+                            val required = CommentNativeBindingCatalog.bindingMethods(handlerClass).map {
+                                "${it.name}${it.parameterTypes.joinToString(",") { type -> type.name }}"
+                            }.toSet()
+                            commentFamilies.record(highCls, FeatureInstallResult.Installed(
+                                registered.size, complete = required.isNotEmpty() && registered.containsAll(required)
+                            ))
+                            logInfo(
+                                "free_copy_ok_v2:$highCls",
+                                "[BIL] 自由复制 hook 已注册（9.x $highCls ${registered.joinToString(", ") { it }}）"
+                            )
+                        }
                     }.onFailure { t ->
-                        logError("free_copy_v2_err", "[BIL] 9.x 评论 hook 注册失败: $t")
+                        // 单个类缺失/解析失败不影响其余管线继续注册。
+                        if (classExists(highCls, biliClassLoader)) {
+                            logError("free_copy_v2_err:$highCls", "[BIL] 9.x 评论 hook 注册失败 $highCls: $t")
+                        }
                     }
-                    freeCopyOk = true
+                    }
+                    freeCopyOk = commentFamilies.installedCount() > 0
                 }
+                val compose = runCatching { composeCommentCopy.install(hookEnvironment) }.getOrElse {
+                    logError("free_copy_compose_registration", "[BIL] Compose 评论复制安装失败，原生管线继续工作")
+                    FeatureInstallResult.Skipped("registration-failed")
+                }
+                if (compose !is FeatureInstallResult.Skipped || compose.reason != "not-applicable-host") {
+                    commentFamilies.record("compose", compose)
+                }
+                if (compose is FeatureInstallResult.Installed) {
+                    freeCopyOk = true
+                    commentFreeCopyBindingVerified.set(true)
+                }
+                reportChannelStatus("free_copy_comment_layers", commentFamilies.describe())
+                runCatching { nativeSupplement.install(hookEnvironment) }.onSuccess { results ->
+                    results.forEach { (family, result) ->
+                        commentFamilies.record(family, result)
+                    }
+                }.onFailure {
+                    commentFamilies.record("native-supplement", false)
+                    logError("free_copy_native_supplement", "[BIL] 图片／推送评论复制安装失败，已有管线继续工作")
+                }
+                reportChannelStatus("free_copy_native_layers", commentFamilies.describe())
                 if (freeCopyOk) {
                     logInfo("free_copy_ok", "[BIL] 自由复制 hook 已注册")
                 } else {
@@ -3875,7 +4255,7 @@ class HookEntry : XposedModule() {
                 }
             }
             commentFreeCopyInstallerRef.set(installCommentFreeCopyHooks)
-            if (runtimeCommentFreeCopyEnabled) installCommentFreeCopyHooks()
+            if (runtimeCommentFreeCopyEnabled || commentTopologyEnabled) installCommentFreeCopyHooks()
 
             // ====== 4a. 气泡亮暗色自动跟随：详情页主题缓存 ======
             // 自动跟随开启时，进入视频详情页判定一次 B 站主题并缓存（详情页会话内 B 站
@@ -4041,11 +4421,15 @@ class HookEntry : XposedModule() {
                                 // 回复预览 TextView 设置官方长按监听，就立即把这个正文控件登记为
                                 // 独立弱引用根并夺回。只命中两个资源 id，不扫描整树、不影响三点
                                 // 操作栏；长按时从该 TextView 实时取文本。
-                                if (isCommentBodyTextView(v)) {
+                                if (isCommentBodyTextView(v) || additionalNativeCopy?.isImageBody(v) == true) {
+                                    val legacy = if (legacyCommentCopy.isBody(v)) {
+                                        legacyCommentCopy.capture(argOrNull(0))
+                                    } else null
                                     // 这里只负责在主绑定 hook 尚未登记时保证长按可用。TextView
                                     // backing 对 9.8.0 Emoji 只是 U+200B，绝不能冒充 raw；解析
                                     // 时会继续向祖先寻找本次绑定保存的完整 RichText 状态。
-                                    registerCommentRoot(v, null, false)
+                                    registerCommentRoot(v, legacy?.first, false,
+                                        rawTrusted = false, commentItem = legacy?.second)
                                     commentStealInProgress = true
                                     try {
                                         setLongClickListenerNoHook(v, sharedFreeCopyListener)
@@ -4089,8 +4473,8 @@ class HookEntry : XposedModule() {
                     // UgcHeadlineService$c.w——均写剪贴板 + toast）。
                     // 因此 hook View.dispatchTouchEvent（触摸统一入口，任何 override
                     // onTouchEvent 的 desc 变体都必经，版本无关）做长按检测：DOWN 记录
-                    // 按下位置并 postDelayed 500ms 长按判定（长按状态中即弹气泡，不等
-                    // 松手）；MOVE 位移超阈值则取消；UP/CANCEL 取消剩余判定，若长按已弹
+                    // 按下位置并 postDelayed 400ms 长按判定（长按状态中即弹气泡，不等
+                    // 松手）；MOVE 超系统 touch slop 则取消全部长按源；UP/CANCEL 取消剩余判定，若长按已弹
                     // 气泡则消费事件（阻止官方复制）。短按/滑动放行（官方点击 span、展开
                     // 收起等行为不受影响）。descLongPressHandled 防双重弹窗。
                     // 评论树长按检测（9.8.0 官方评论长按不走 OnLongClickListener，触摸层
@@ -4110,6 +4494,7 @@ class HookEntry : XposedModule() {
                                     val v = instance as? View ?: return@before
                                     val ev = argOrNull(0) as? android.view.MotionEvent ?: return@before
                                     val action = ev.actionMasked
+                                    if (runtimeDescriptionFreeCopyEnabled) observeDescTouch(ev)
                                     // more_button 属于宿主独立点击控件，不属于评论正文自由复制范围。
                                     // 父 View 的 dispatch 会先建立评论会话；按钮本身到达 beforeHook
                                     // 时撤销它，并让同一 downTime 的全部后续节点/UP 直接交还宿主。
@@ -4134,7 +4519,9 @@ class HookEntry : XposedModule() {
                                             // 新手势落在非简介 View 时终止旧简介会话。desc 自身的
                                             // dispatch 之前也会经过祖先 View，此清理不会影响随后
                                             // desc 分支建立的新会话。
-                                            if (descTouchedView != null) {
+                                            if (descCopyGesture.isTracking &&
+                                                !descCopyGesture.matches(ev.downTime)
+                                            ) {
                                                 clearDescTouchSession(resetHandled = true)
                                             }
                                             if (!runtimeCommentFreeCopyEnabled) return@before
@@ -4169,6 +4556,12 @@ class HookEntry : XposedModule() {
                                         return@before
                                         }
 
+                                        if (descCopyGesture.matches(ev.downTime) &&
+                                            (action == android.view.MotionEvent.ACTION_UP ||
+                                                action == android.view.MotionEvent.ACTION_CANCEL)
+                                        ) {
+                                            clearDescTouchSession(resetHandled = !descLongPressHandled)
+                                        }
                                         if (!runtimeCommentFreeCopyEnabled) return@before
                                         // 没有活动会话时 MOVE/UP/CANCEL 仍是纯 O(1) 早退；有会话时
                                         // 也不再重复评论根祖先遍历。终止事件按 downTime 清理，
@@ -4219,29 +4612,25 @@ class HookEntry : XposedModule() {
                                             clearDescTouchSession(resetHandled = true)
                                             descTouchDownMs = ev.downTime
                                             descTouchObservedAtMs = android.os.SystemClock.uptimeMillis()
-                                            descTouchDownX = ev.rawX
-                                            descTouchDownY = ev.rawY
+                                            descCopyGesture.begin(ev.downTime, ev.getPointerId(0),
+                                                ev.rawX, ev.rawY,
+                                                android.view.ViewConfiguration.get(v.context)
+                                                    .scaledTouchSlop.toFloat())
                                             descLongPressHandled = false
                                             descTouchedView = v
-                                            // 长按状态下弹气泡（500ms 后判定，不等松手）
+                                            // 长按状态下弹气泡（400ms 后判定，不等松手）。
                                             val handler = mainHandlerOrNull()
                                             if (handler != null) {
                                                 handler.removeCallbacks(descLongPressRunnable)
-                                                val delay = (descTouchObservedAtMs + 400L -
+                                                val delay = (descTouchObservedAtMs +
+                                                    DescriptionCopyGesture.LONG_PRESS_MILLIS -
                                                     android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
                                                 // 描述长按与固定 Runnable 的 removeCallbacks 必须保持配对。
                                                 //noinspection ReplaceWithCoroutinesExtension
                                                 handler.postDelayed(descLongPressRunnable, delay)
                                             }
                                         }
-                                        android.view.MotionEvent.ACTION_MOVE -> {
-                                            // 位移超过阈值视为滑动/滚动，取消长按判定并解除官方复制拦截
-                                            val moved = kotlin.math.abs(ev.rawX - descTouchDownX) +
-                                                kotlin.math.abs(ev.rawY - descTouchDownY)
-                                            if (moved >= 60f && !descLongPressHandled) {
-                                                clearDescTouchSession(resetHandled = true)
-                                            }
-                                        }
+                                        // MOVE/多指统一由 observeDescTouch 观察，宿主事件始终放行。
                                         android.view.MotionEvent.ACTION_UP,
                                         android.view.MotionEvent.ACTION_CANCEL -> {
                                             mainHandlerRef?.removeCallbacks(descLongPressRunnable)
@@ -4255,20 +4644,14 @@ class HookEntry : XposedModule() {
                                         return@before
                                             }
                                             val dur = (ev.eventTime - descTouchDownMs).coerceAtLeast(0L)
-                                            val moved = kotlin.math.abs(ev.rawX - descTouchDownX) +
-                                                kotlin.math.abs(ev.rawY - descTouchDownY)
                                             // 长按阈值内（≥400ms，官方长按判定线）松手：若气泡未弹
-                                            // （500ms runnable 未触发，如 400-500ms 松手）立即弹，并消费
+                                            // （主线程繁忙导致 runnable 未触发）立即弹，并消费
                                             // 事件阻止官方 UP 分支的长按复制（链接 span 的 b.b() 路径）。
                                             if (action == android.view.MotionEvent.ACTION_UP &&
-                                                dur >= 400L && moved < 60f && !handled
+                                                dur >= DescriptionCopyGesture.LONG_PRESS_MILLIS &&
+                                                descCopyGesture.isPending && !handled
                                             ) {
-                                                descLongPressHandled = true
-                                                handled = true
-                                                runCatching {
-                                                    showFreeCopyPopup(v, extractDescText(v))
-                                                    hapticFeedback(v)
-                                                }
+                                                handled = sharedFreeCopyListener.onLongClick(v)
                                             }
                                             clearDescTouchSession(resetHandled = !handled)
                                             if (handled && action == android.view.MotionEvent.ACTION_UP) {
@@ -4356,6 +4739,7 @@ class HookEntry : XposedModule() {
                                         return@before
                                     }
                                     val clip = args.getOrNull(0) as? android.content.ClipData ?: return@before
+                                    if (ReplyTopologyClipboardWrite.owns(clip)) return@before
                                     val clipText = runCatching {
                                         clip.getItemAt(0).coerceToText(null)?.toString()
                                     }.getOrNull() ?: return@before
@@ -4568,7 +4952,8 @@ class HookEntry : XposedModule() {
                     val paths = (if (comment) 1 else 0) + (if (common) 1 else 0)
                     HostRuntimeDiagnosticsBridge.recordInstallation(FeatureInstallRecord(
                         "free_copy_comment_enabled",
-                        if (paths > 0) FeatureInstallResult.Installed(paths, complete = paths == 2)
+                        if (paths > 0) FeatureInstallResult.Installed(paths,
+                            complete = paths == 2 && commentFamilies.isComplete())
                         else FeatureInstallResult.Skipped("registration-failed"), null
                     ))
                 }
@@ -4597,7 +4982,9 @@ class HookEntry : XposedModule() {
                 val result = when {
                     !runtimeCommentFreeCopyEnabled && !runtimeDescriptionFreeCopyEnabled ->
                         FeatureInstallResult.Skipped("disabled")
-                    installedCount > 0 -> FeatureInstallResult.Installed(installedCount)
+                    installedCount > 0 -> FeatureInstallResult.Installed(installedCount,
+                        complete = (!runtimeCommentFreeCopyEnabled || commentFamilies.isComplete()) &&
+                            (!runtimeDescriptionFreeCopyEnabled || descriptionFreeCopyHooksInstalled.get()))
                     else -> FeatureInstallResult.Skipped("registration-failed")
                 }
                 HostRuntimeDiagnosticsBridge.recordInstallation(
@@ -4695,6 +5082,46 @@ class HookEntry : XposedModule() {
                 RoamingCompatHook.reportScanResult(context, biliClassLoader)
             }
 
+            // NPatch 免 Root 的"已激活"只认宿主进程回执：API102 重构删掉了旧的
+            // NoRootTargetConfigBridge 调用点后心跳再没有人发，模块侧
+            // heartbeatMatches 恒 false，SyncState.ACTIVE 永远降级成"需要重启"。
+            // 在授权安装链成功后恢复回执；noRootRevision 只在 NPatch 网关交付时
+            // 非零（LSPosed 提交路径恒为 0），模块侧 recordHeartbeat 还会按快照
+            // revision/版本逐项校验，非免 Root 交付与失配回执都会被拒收。
+            fun reportNoRootHeartbeatIfSynced(appContext: Context, config: RemoteHookConfigSnapshot) {
+                if (config.noRootRevision <= 0L) return
+                if (!TargetProcess.isMainProcess(appContext, TARGET_PACKAGE)) return
+                Thread({
+                    val targetInfo = runCatching {
+                        appContext.packageManager.getPackageInfo(TARGET_PACKAGE, 0)
+                    }.getOrNull()
+                    val targetVersionCode = targetInfo?.let {
+                        @Suppress("DEPRECATION")
+                        if (AndroidVersion.isAtLeast(AndroidVersion.P)) {
+                            it.longVersionCode
+                        } else {
+                            it.versionCode.toLong()
+                        }
+                    } ?: 0L
+                    val dispatched = NoRootTargetConfigBridge.reportRuntimeState(
+                        context = appContext,
+                        revision = config.noRootRevision,
+                        moduleVersionCode = config.moduleVersionCode,
+                        targetVersionCode = targetVersionCode,
+                        targetUpdateTime = targetInfo?.lastUpdateTime ?: 0L,
+                        processName = processName,
+                        active = true
+                    )
+                    frameworkLog(
+                        "[BIL] NPatch 免 Root 宿主回执" +
+                            "(revision=${config.noRootRevision}, dispatched=$dispatched)"
+                    )
+                }, "BIL-no-root-heartbeat").apply {
+                    isDaemon = true
+                    start()
+                }
+            }
+
             fun performAuthorizationAndInstall(
                 appContext: Context,
                 config: RemoteHookConfigSnapshot
@@ -4728,6 +5155,7 @@ class HookEntry : XposedModule() {
                         HostRuntimeDiagnosticsBridge.recordInstallChainCompleted()
                     }
                     reportScanResultIfReady(appContext)
+                    reportNoRootHeartbeatIfSynced(appContext, config)
                 }.onFailure { throwable ->
                     if (processName == TARGET_PACKAGE) {
                         HostRuntimeDiagnosticsBridge.recordInstallChainFailed()

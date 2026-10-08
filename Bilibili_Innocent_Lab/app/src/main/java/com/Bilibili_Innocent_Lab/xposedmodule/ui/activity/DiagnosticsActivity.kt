@@ -55,6 +55,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticActivationState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticConfigDelivery
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.configDelivery
+import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.isIdleUnderStandardPublisherBypass
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureInstallState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostFeature
@@ -82,7 +83,8 @@ import java.util.Locale
 import kotlin.math.abs
 
 /** 只读、本地优先的统一诊断中心。 */
-class DiagnosticsActivity : SkinnedActivity() {
+class DiagnosticsActivity : SkinnedActivity(),
+    com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidStaticBackdropHost {
     private companion object {
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
         const val ENTER_DURATION_MS = 370L
@@ -174,7 +176,14 @@ class DiagnosticsActivity : SkinnedActivity() {
     ) { uri ->
         pickerOpen = false
         val snapshot = currentSnapshot
-        if (uri != null && snapshot != null) viewModel.export(applicationContext, uri, snapshot)
+        if (uri == null) return@registerForActivityResult
+        // 后台刷新在用户停留文件选择器期间失败时快照会被清空：静默丢弃会让用户
+        // 以为已导出。给一条明确提示，导出按钮此时本就已随失败态禁用。
+        if (snapshot == null) {
+            Toast.makeText(this, R.string.diagnostics_export_snapshot_stale, Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        viewModel.export(applicationContext, uri, snapshot)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -195,9 +204,8 @@ class DiagnosticsActivity : SkinnedActivity() {
         val darkTheme = (resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val collapsedSurfaceColor = ColorUtils.setAlphaComponent(
-            sourceNeutralColor,
-            DiagnosticsEntryVisualSpec.scrimAlpha(darkTheme)
+        val collapsedSurfaceColor = DiagnosticsEntryVisualSpec.surfaceColor(
+            darkTheme, sourceNeutralColor, monetColors.surface
         )
         motionHost = SettingsBackupMotionHost(
             context = this,
@@ -220,12 +228,14 @@ class DiagnosticsActivity : SkinnedActivity() {
             )
         )
         motionHost.onWindowSizeChangedDuringMotion = ::handleMotionWindowSizeChange
+        motionHost.onContentMoved = ::notifyPreparedSkinPositionChanged
         PredictiveBack.apply(
             window,
             prefs().getBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, false)
         )
         val root = buildRoot()
         setContentView(motionHost)
+        motionHost.installContentInsets()
         motionHost.replacePage(root, requireNotNull(toolbarTitleView))
         bindPreparedSkinRoot(motionHost.liquidBackdropRoot()) {
             if (!isFinishing && !isDestroyed) recreate()
@@ -282,6 +292,7 @@ class DiagnosticsActivity : SkinnedActivity() {
         cancelMotionAnimator()
         if (::motionHost.isInitialized) {
             motionHost.onWindowSizeChangedDuringMotion = null
+            motionHost.onContentMoved = null
         }
         super.onDestroy()
     }
@@ -725,7 +736,6 @@ class DiagnosticsActivity : SkinnedActivity() {
     private fun buildToolbar(): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(10.dp, 0, 8.dp, 0)
-        background = skinTopBarBackground(monetColors.background)
         addView(actionButton("‹", getString(R.string.diagnostics_title)) {
             onBackPressedDispatcher.onBackPressed()
         }.also(motionHost::registerNavigationBack), LinearLayout.LayoutParams(48.dp, 48.dp))
@@ -1022,6 +1032,9 @@ class DiagnosticsActivity : SkinnedActivity() {
             }
             DiagnosticItemId.REMOTE_CONFIG -> {
                 val base = when {
+                    // 选中 NPatch 后标准发布器永远不会发布，不该再说“失败”或“等待服务后发布”。
+                    input.isIdleUnderStandardPublisherBypass() ->
+                        getString(R.string.diagnostics_remote_npatch_selected)
                     input.remotePublishPending &&
                         input.remotePublishState != DiagnosticRemotePublishState.FAILED ->
                         getString(R.string.diagnostics_remote_publishing)
@@ -1269,6 +1282,7 @@ class DiagnosticsActivity : SkinnedActivity() {
             "home_component_filter" -> R.string.custom_home_component_hide
             "bottom_bar" -> R.string.custom_bottom_bar_hide
             "story_purify" -> R.string.story_purify_settings
+            "story_action_icons" -> R.string.story_action_icons_title
             "dynamic_tabs_purify" -> R.string.dynamic_page_settings
             "dynamic_purify" -> R.string.diagnostics_host_feature_dynamic_feed
             "search_purify" -> R.string.diagnostics_host_feature_search
@@ -1320,7 +1334,8 @@ class DiagnosticsActivity : SkinnedActivity() {
                 (18 * density).toInt()
             )
             background = skinModalBackground(monetColors.surface)
-            elevation = 12 * density
+            // 与 MainActivity.createModalContainer 一致：玻璃皮肤下半透明卡片不带系统投影。
+            elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density
             scaleX = 0.85f
             scaleY = 0.85f
             alpha = 0f
